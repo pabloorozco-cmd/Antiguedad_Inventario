@@ -30,6 +30,9 @@ WAREHOUSE_USERS: dict[str, tuple[str, ...]] = OrderedDict(
     }
 )
 
+SUPERVISOR_NAME = "Rudy Anavisca"
+SUPERVISOR_ACCESS = "Supervisión"
+
 PRODUCTS = ("UNO", "ECO", "GU", "HE")
 
 # Etiquetas operativas mostradas en la interfaz; no reemplazan logos oficiales.
