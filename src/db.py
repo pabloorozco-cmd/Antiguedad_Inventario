@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import date
+
+from src.report import day_bounds_utc
 from typing import Any
 
 import streamlit as st
@@ -89,3 +91,27 @@ def recent_entries(warehouse: str, limit: int = 12) -> list[dict[str, Any]]:
         .execute()
     )
     return list(result.data or [])
+
+
+def entries_on_date(selected_date: date, *, page_size: int = 500) -> list[dict[str, Any]]:
+    """Obtiene TODAS las capturas del día local, sin el límite implícito de 1.000 filas."""
+    start, end = day_bounds_utc(selected_date)
+    result: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        response = (
+            get_client()
+            .table(TABLE)
+            .select("id,created_at,employee_name,home_warehouse,warehouse,is_support,product,sacks,production_date")
+            .gte("created_at", start)
+            .lt("created_at", end)
+            .order("created_at", desc=False)
+            .order("id", desc=False)
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
+        page = list(response.data or [])
+        result.extend(page)
+        if len(page) < page_size:
+            return result
+        offset += page_size
