@@ -1,0 +1,313 @@
+"""ARGOS Guatemala | Registro de producción e inventario por bodega.
+
+Ejecución: streamlit run app.py
+"""
+
+from __future__ import annotations
+
+import html
+import logging
+import uuid
+from datetime import date
+
+import streamlit as st
+
+from src.auth import verify_pin
+from src.config import APP_TITLE, MAX_SACKS_PER_ENTRY, PRODUCTS, PRODUCT_STYLES, WAREHOUSE_USERS
+from src.db import get_secret, insert_entry, is_configured, recent_entries
+from src.domain import age_in_days, format_date, format_timestamp, now_guatemala, pallet_equivalent, today_guatemala, validate_entry
+from src.style import apply_style
+
+logging.basicConfig(level=logging.INFO)
+LOGGER = logging.getLogger("argos")
+
+st.set_page_config(
+    page_title=APP_TITLE,
+    page_icon="assets/brand-mark.svg",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+apply_style()
+
+
+def e(value: object) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def brand() -> None:
+    st.markdown(
+        """
+        <div class="brand-row">
+          <div class="brand-left">
+            <div class="brand-emblem">
+              <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                <path d="M5 26h9l6-12 8 23 5-11h10" fill="none" stroke="#C4D600" stroke-width="4.1" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div><div class="brand-word">ARGOS</div><div class="brand-desc">Guatemala · Importaciones</div></div>
+          </div>
+          <div class="brand-chip"><span class="chip-dot"></span>Gestión inteligente de inventario</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def login() -> None:
+    brand()
+    hero, form_column = st.columns([1.15, 1], gap="large", vertical_alignment="center")
+    with hero:
+        st.markdown(
+            """
+            <div class="hero">
+              <div class="hero-kicker">OPERACIÓN · GUATEMALA</div>
+              <div class="hero-title">Control más claro.<br><em>Inventario más inteligente.</em></div>
+              <div class="hero-sub">Una experiencia simple para capturar la producción del cemento, mantener la trazabilidad del registro y conectar a quienes operan nuestras bodegas.</div>
+              <div class="hero-footer"><span class="hero-stat">03 Bodegas</span><span class="hero-stat">04 Productos</span><span class="hero-stat">Registro en tiempo real</span></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with form_column:
+        st.markdown(
+            """<div class="login-head"><div class="kicker">ACCESO OPERATIVO</div><div class="heading">Bienvenido de nuevo</div><div class="description">Selecciona tu bodega habitual y tu nombre para comenzar.</div></div>""",
+            unsafe_allow_html=True,
+        )
+        home = st.selectbox("Tu bodega habitual", options=list(WAREHOUSE_USERS), key="login_home")
+        employee = st.selectbox("Selecciona tu nombre", options=WAREHOUSE_USERS[home], key="login_employee")
+        support = st.toggle("Apoyo · Voy a trabajar en otra bodega", key="login_support")
+        active = home
+        if support:
+            destinations = [w for w in WAREHOUSE_USERS if w != home]
+            active = st.selectbox("¿A qué bodega vas a apoyar?", destinations, key="login_destination")
+            st.caption(f"Tus registros se guardarán en {active}, a nombre de {employee}.")
+        auth_mode = str(get_secret("AUTH_MODE", "selector")).strip().lower()
+        pin = ""
+        if auth_mode == "pin":
+            pin = st.text_input("PIN personal", type="password", help="PIN definido por el administrador.", key="login_pin")
+        elif auth_mode != "selector":
+            st.error("AUTH_MODE inválido. Utiliza 'selector' o 'pin' en Secrets.")
+            return
+        st.write("")
+        if st.button("Ingresar a la plataforma  →", use_container_width=True, type="primary"):
+            if auth_mode == "pin":
+                hashes = get_secret("PIN_HASHES", {})
+                expected_hash = hashes.get(employee) if hashes else None
+                if not expected_hash or not verify_pin(pin, str(expected_hash)):
+                    st.error("PIN incorrecto o no configurado para este usuario.")
+                    return
+            st.session_state.identity = {
+                "employee": employee,
+                "home": home,
+                "warehouse": active,
+                "support": support,
+            }
+            st.session_state.pending_request_id = str(uuid.uuid4())
+            st.rerun()
+        if auth_mode == "selector":
+            st.caption("Acceso por selección de nombre. Para verificar identidad, el administrador puede activar PIN individual.")
+    st.markdown('<div class="footer-mini">ARGOS GUATEMALA · CONTROL OPERATIVO DE BODEGAS</div>', unsafe_allow_html=True)
+
+
+def logout() -> None:
+    for key in ("identity", "pending_request_id", "login_pin"):
+        st.session_state.pop(key, None)
+    st.rerun()
+
+
+def sidebar(identity: dict[str, object]) -> None:
+    with st.sidebar:
+        st.markdown('<div class="side-logo">ARGOS</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="side-card">'
+            '<div class="side-k">Operador</div>'
+            f'<div class="side-v">{e(identity["employee"])}</div>'
+            '<div class="side-k">Bodega en operación</div>'
+            f'<div class="side-v">{e(identity["warehouse"])}</div>'
+            '<div class="side-k">Modalidad</div>'
+            f'<div class="side-v">{"Apoyo temporal" if identity["support"] else "Asignación habitual"}</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        st.write("")
+        if st.button("Cambiar bodega / Apoyo", use_container_width=True):
+            logout()
+        if st.button("Cerrar sesión", use_container_width=True):
+            logout()
+        st.divider()
+        st.caption("La fecha y hora de guardado se registran en Supabase y se muestran en hora de Guatemala (UTC−6).")
+
+
+def welcome(identity: dict[str, object]) -> None:
+    brand()
+    support = " · En apoyo" if identity["support"] else ""
+    st.markdown(
+        '<div class="welcome">'
+        '<small>PORTAL DE CAPTURA · OPERACIÓN LOGÍSTICA</small>'
+        f'<h2>Hola, {e(str(identity["employee"]).split()[0])}.</h2>'
+        f'<p>Estás registrando información para <b>{e(identity["warehouse"])}</b>{e(support)}. '
+        'Cada registro se almacena con su responsable y hora de captura.</p>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def product_chip(product: str) -> str:
+    style = PRODUCT_STYLES[product]
+    return (
+        f'<span class="product-chip" style="background:{style["background"]};'
+        f'color:{style["foreground"]}">{e(product)}</span>'
+    )
+
+
+def record_form(identity: dict[str, object]) -> None:
+    st.markdown('<div class="section-title">Nuevo registro</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-sub">Captura el producto, la cantidad de sacos y su fecha de producción. Los datos de operador, bodega y hora se completan automáticamente.</div>',
+        unsafe_allow_html=True,
+    )
+    with st.form("capture", clear_on_submit=False, border=True):
+        left, right = st.columns(2, gap="large")
+        with left:
+            product = st.selectbox("Producto *", options=PRODUCTS, index=0)
+            sacks = st.number_input(
+                "Cantidad de sacos *",
+                min_value=1,
+                max_value=MAX_SACKS_PER_ENTRY,
+                value=40,
+                step=1,
+                help="Cada estiba completa equivale a 40 sacos; puedes ingresar otra cantidad.",
+            )
+        with right:
+            production = st.date_input(
+                "Producción *",
+                value=today_guatemala(),
+                min_value=date(2000, 1, 1),
+                max_value=today_guatemala(),
+                format="DD/MM/YYYY",
+                help="Selecciona la fecha real de fabricación que estás registrando.",
+            )
+            full, extra = pallet_equivalent(int(sacks))
+            st.caption(f"Equivalencia: {full} estiba(s) completa(s) de 40 sacos" + (f" y {extra} saco(s) adicionales." if extra else "."))
+        st.markdown(
+            '<div class="form-note"><div class="note-icon">i</div>'
+            '<div><b>Fecha y hora automáticas.</b> El servidor fija el momento exacto del guardado. '
+            'Se muestra en formato DD/MM/AAAA HH:MM:SS, hora de Guatemala.</div></div>',
+            unsafe_allow_html=True,
+        )
+        st.write("")
+        submitted = st.form_submit_button("Guardar registro  →", type="primary", use_container_width=True)
+
+    if submitted:
+        try:
+            validate_entry(
+                employee=str(identity["employee"]),
+                home_warehouse=str(identity["home"]),
+                active_warehouse=str(identity["warehouse"]),
+                support=bool(identity["support"]),
+                product=product,
+                sacks=int(sacks),
+                production=production,
+            )
+        except ValueError as exc:
+            st.error(str(exc))
+            return
+        if not is_configured():
+            st.error("No se guardó: falta configurar SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Secrets.")
+            return
+        request_id = st.session_state.setdefault("pending_request_id", str(uuid.uuid4()))
+        try:
+            with st.spinner("Guardando en Supabase…"):
+                row = insert_entry(
+                    request_id=request_id,
+                    employee=str(identity["employee"]),
+                    home_warehouse=str(identity["home"]),
+                    warehouse=str(identity["warehouse"]),
+                    is_support=bool(identity["support"]),
+                    product=product,
+                    sacks=int(sacks),
+                    production_date=production,
+                )
+        except Exception:
+            LOGGER.exception("Error de Supabase al guardar registro")
+            st.error("No se pudo guardar. Revisa la conexión, los secretos y que hayas ejecutado sql/schema.sql en Supabase. Puedes reintentar sin crear un duplicado.")
+            return
+        st.session_state.pending_request_id = str(uuid.uuid4())
+        stamp = format_timestamp(row["created_at"])
+        st.markdown(
+            f'<div class="status-ok">✓ Registro guardado · {e(product)} · {int(sacks)} sacos · Producción {format_date(production)} · {stamp}</div>',
+            unsafe_allow_html=True,
+        )
+        st.toast("Registro guardado correctamente", icon="✅")
+
+
+def summary_and_recent(identity: dict[str, object]) -> None:
+    st.markdown('<div class="section-title">Actividad de la bodega</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Últimos registros de la bodega seleccionada, visibles para el personal de esa bodega.</div>', unsafe_allow_html=True)
+    if not is_configured():
+        st.info("Vista previa lista. Configura los secretos de Supabase para habilitar guardado e historial.")
+        return
+    try:
+        records = recent_entries(str(identity["warehouse"]))
+    except Exception:
+        LOGGER.exception("Error consultando historial")
+        st.warning("No fue posible cargar el historial. El formulario sigue disponible para registrar información.")
+        return
+    today = today_guatemala()
+    current = [r for r in records if format_timestamp(r["created_at"]).startswith(today.strftime("%d/%m/%Y"))]
+    counters = [
+        ("Registros recientes", str(len(records)), "Últimos 12 movimientos"),
+        ("Sacos en registros recientes", f"{sum(int(r['sacks']) for r in records):,}", "Capturas mostradas"),
+        ("Registros de hoy", str(len(current)), "Entre los últimos 12 registros"),
+    ]
+    cols = st.columns(3, gap="medium")
+    for col, (label, value, helper) in zip(cols, counters):
+        with col:
+            st.markdown(
+                f'<div class="dash-card"><div class="dash-label">{e(label)}</div>'
+                f'<div class="dash-value">{e(value)}</div><div class="dash-helper">{e(helper)}</div></div>',
+                unsafe_allow_html=True,
+            )
+    st.write("")
+    if not records:
+        st.markdown('<div class="empty-state">Aún no hay registros para esta bodega. Guarda el primero desde el formulario.</div>', unsafe_allow_html=True)
+        return
+    headers = st.columns([2.0, 1.3, .8, 1.4, 1.15, 2.1], gap="small")
+    for col, title in zip(headers, ("Fecha / hora", "Producto", "Sacos", "Producción", "Edad", "Responsable")):
+        with col:
+            st.caption(title)
+    for r in records:
+        cols = st.columns([2.0, 1.3, .8, 1.4, 1.15, 2.1], gap="small", vertical_alignment="center")
+        with cols[0]: st.caption(format_timestamp(r["created_at"]))
+        with cols[1]: st.markdown(product_chip(r["product"]), unsafe_allow_html=True)
+        with cols[2]: st.write(f"**{r['sacks']}**")
+        with cols[3]: st.caption(format_date(r["production_date"]))
+        with cols[4]: st.caption(f"{age_in_days(date.fromisoformat(r['production_date']))} días")
+        with cols[5]: st.caption(str(r["employee_name"]) + (" · Apoyo" if r.get("is_support") else ""))
+    st.caption("La edad se calcula desde la fecha de producción. Los registros muestran capturas, no existencias netas: todavía no se descuentan salidas.")
+
+
+def main() -> None:
+    identity = st.session_state.get("identity")
+    if identity is None:
+        login()
+        return
+    sidebar(identity)
+    welcome(identity)
+    toolbar_info, toolbar_action = st.columns([3, 1], vertical_alignment="center")
+    with toolbar_info:
+        st.caption(f"Bodega activa: {identity['warehouse']} · {'Apoyo temporal' if identity['support'] else 'Asignación habitual'}")
+    with toolbar_action:
+        if st.button("Cambiar bodega / Apoyo", key="quick_switch", use_container_width=True):
+            logout()
+    st.write("")
+    if not is_configured():
+        st.warning("Modo de configuración: Supabase todavía no está conectado. Puedes revisar la interfaz, pero el guardado está deshabilitado.")
+    record_form(identity)
+    st.write("")
+    summary_and_recent(identity)
+    st.markdown('<div class="footer-mini">ARGOS · PLATAFORMA DE OPERACIÓN Y ABASTECIMIENTO · GUATEMALA</div>', unsafe_allow_html=True)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,15 @@
+# Nunca almacenar credenciales ni archivos generados
+.streamlit/secrets.toml
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.DS_Store
+*.sqlite3
+*.db
+.coverage
+htmlcov/
