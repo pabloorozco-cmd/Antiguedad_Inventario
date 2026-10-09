@@ -4,13 +4,26 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 from src.config import PRODUCTS, TIMEZONE, WAREHOUSE_USERS
 
 BUCKETS = ("verde", "amarillo", "naranja", "rojo")
+TONNES_PER_SACK = Decimal("0.0425")
+
+
+def rounded_tonnes(sacks: int | Decimal) -> int:
+    """Equivalencia fija aprobada para el reporte: 42.5 kg por saco.
+
+    Redondea al entero más cercano con .5 hacia arriba; no usa floats.
+    Los totales generales se calculan desde los sacos agregados y después
+    se redondean, para evitar errores por redondeos parciales.
+    """
+    if Decimal(str(sacks)) < 0:
+        raise ValueError("La cantidad de sacos no puede ser negativa.")
+    return int((Decimal(str(sacks)) * TONNES_PER_SACK).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def day_bounds_utc(selected_date: date) -> tuple[str, str]:
