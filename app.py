@@ -414,7 +414,7 @@ def supervisor_dashboard() -> None:
     with header:
         st.caption("Supervisor · Rudy Anavisca · Acceso a las tres bodegas")
     with logout_col:
-        if st.button("Salir", key="top_exit_supervisor", use_container_width=True):
+        if st.button("⏻  Salir", type="primary", key="top_exit_supervisor", use_container_width=True):
             logout()
 
     st.markdown('<div class="section-title">Semáforo diario de capturas</div>', unsafe_allow_html=True)
@@ -532,7 +532,7 @@ def main() -> None:
         if st.button("Cambiar bodega / Apoyo", key="quick_switch", use_container_width=True):
             logout()
     with toolbar_exit:
-        if st.button("Salir", key="top_exit_operator", use_container_width=True):
+        if st.button("⏻  Salir", type="primary", key="top_exit_operator", use_container_width=True):
             logout()
     st.write("")
     if not is_configured():
