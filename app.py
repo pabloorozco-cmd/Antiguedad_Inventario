@@ -397,8 +397,8 @@ def _report_html(report: dict[str, object]) -> str:
         '<th scope="col" class="th-rojo">ROJO<br><span>21+ días</span></th>'
         '<th scope="col">TOTAL<br><span>(SACOS)</span></th>'
         '<th scope="col">TOTAL<br><span>(TON)</span></th>'
-        '<th scope="col">PEDIDOS</th>'
-        '<th scope="col">PEDIDOS<br><span>(TON)</span></th>'
+        '<th scope="col" class="th-odoo th-odoo-start">PEDIDOS</th>'
+        '<th scope="col" class="th-odoo">PEDIDOS<br><span>(TON)</span></th>'
     )
     # Cada bodega comparte una celda vertical, incluidos sus subtotales.
     grouped = _warehouse_groups(report["rows"])
@@ -432,7 +432,7 @@ def _report_html(report: dict[str, object]) -> str:
                 )
                 + f'<td class="total-cell">{total_sacks:,}</td>'
                 + f'<td class="tonnes-cell">{total_tonnes:,}</td>'
-                + '<td class="odoo-cell"></td><td class="odoo-cell"></td></tr>'
+                + '<td class="odoo-cell odoo-start"></td><td class="odoo-cell"></td></tr>'
             )
             band_cards = ''.join(
                 f'<div class="mobile-band band-{key}"><span>{label}</span><b>{value}</b></div>'
@@ -457,7 +457,7 @@ def _report_html(report: dict[str, object]) -> str:
             '<th scope="row" class="inv-subtotal-label">SUBTOTAL</th>'
             + ''.join(f'<td>{subtotal[key]:,}</td>' for key in BUCKETS)
             + f'<td>{subtotal_sacks:,}</td><td>{subtotal_tonnes:,}</td>'
-            + '<td></td><td></td></tr>'
+            + '<td class="odoo-cell odoo-start"></td><td class="odoo-cell"></td></tr>'
         )
         body.append('</tbody>')
         # En móviles se resume también cada bodega tras sus productos.
@@ -471,6 +471,7 @@ def _report_html(report: dict[str, object]) -> str:
             '<strong>SUBTOTAL DE BODEGA</strong>'
             f'<span>{subtotal_sacks:,} sacos · {subtotal_tonnes:,} ton</span></div>'
             f'<div class="mobile-bands">{subtotal_bands}</div>'
+            '<div class="inv-card-orders"><span>PEDIDOS <b></b></span><span>PEDIDOS (TON) <b></b></span></div>'
             '</div>'
         )
         # En móviles el nombre de la bodega también aparece solo una vez.
@@ -487,7 +488,7 @@ def _report_html(report: dict[str, object]) -> str:
         '<tr class="inv-grand-total"><th scope="row" colspan="2">TOTAL GENERAL</th>'
         + ''.join(f'<td>{int(totals[key]):,}</td>' for key in BUCKETS)
         + f'<td>{overall_sacks:,}</td><td>{rounded_tonnes(overall_sacks):,}</td>'
-        + '<td></td><td></td></tr>'
+        + '<td class="odoo-cell odoo-start"></td><td class="odoo-cell"></td></tr>'
     )
     return (
         '<div class="inv-report-desktop"><div class="inv-report-scroll" role="region" aria-label="Semáforo de inventario" tabindex="0">'
