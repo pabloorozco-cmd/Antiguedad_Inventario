@@ -196,10 +196,23 @@ p { color:#344360; }
   border:2px solid #B72E3A!important;
   box-shadow:0 8px 22px rgba(183,46,58,.23)!important;
   border-radius:12px!important;
-  min-height:54px!important;
-  font-size:clamp(15px,.95vw,19px)!important;
-  font-weight:850!important;
-  letter-spacing:.012em;
+  min-height:60px!important;
+  font-size:clamp(20px,1.25vw,25px)!important;
+  font-weight:900!important;
+  letter-spacing:.055em;
+  text-transform:uppercase!important;
+}
+/* Streamlit dibuja el texto del botón dentro de elementos <p>/<span>.
+   Se fuerzan esos elementos a blanco para que no hereden el color oscuro global. */
+[class*="st-key-top_exit_supervisor"] button :is(p, span),
+[class*="st-key-top_exit_operator"] button :is(p, span) {
+  color:#FFFFFF!important;
+  -webkit-text-fill-color:#FFFFFF!important;
+  font-size:clamp(20px,1.25vw,25px)!important;
+  font-weight:900!important;
+  line-height:1.15!important;
+  letter-spacing:.055em!important;
+  text-transform:uppercase!important;
 }
 [class*="st-key-top_exit_supervisor"] button:hover,
 [class*="st-key-top_exit_operator"] button:hover {
