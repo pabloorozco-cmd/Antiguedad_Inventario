@@ -359,32 +359,64 @@ def _report_html(report: dict[str, object]) -> str:
         '<th scope="col">PEDIDOS</th>'
         '<th scope="col">PEDIDOS<br><span>(TON)</span></th>'
     )
-    body: list[str] = []
-    cards: list[str] = []
+    # Agrupación visual por bodega: una sola celda vertical (rowspan)
+    # para cada bodega, independientemente del número de productos.
+    grouped: dict[str, list[dict[str, object]]] = {}
     for row in report["rows"]:
         assert isinstance(row, dict)
-        depot, product = e(row["warehouse"]), e(row["product"])
-        total_sacks = int(row["sacks"])
-        total_tonnes = rounded_tonnes(total_sacks)
-        bands = [f'{int(row[key]):,}' for key in BUCKETS]
-        body.append(
-            '<tr>' + f'<td class="depot-cell">{depot}</td><td>{product_chip(str(row["product"]))}</td>'
-            + ''.join(f'<td class="band-cell band-{key}">{value}</td>' for key, value in zip(BUCKETS, bands))
-            + f'<td class="total-cell">{total_sacks:,}</td>'
-            + f'<td class="tonnes-cell">{total_tonnes:,}</td>'
-            + '<td class="odoo-cell"></td><td class="odoo-cell"></td></tr>'
-        )
-        band_cards = ''.join(
-            f'<div class="mobile-band band-{key}"><span>{label}</span><b>{value}</b></div>'
-            for key, label, value in zip(BUCKETS, ("Verde · 0–10", "Amarillo · 11–15", "Naranja · 16–20", "Rojo · 21+"), bands)
-        )
+        grouped.setdefault(str(row["warehouse"]), []).append(row)
+
+    body: list[str] = []
+    cards: list[str] = []
+    for warehouse, warehouse_products in grouped.items():
+        depot = e(warehouse)
+        body.append(f'<tbody class="inv-warehouse-group" aria-label="Bodega {depot}">')
+        mobile_cards: list[str] = []
+        for index, row in enumerate(warehouse_products):
+            total_sacks = int(row["sacks"])
+            total_tonnes = rounded_tonnes(total_sacks)
+            bands = [f'{int(row[key]):,}' for key in BUCKETS]
+            # Un único nombre de bodega, centrado horizontal y verticalmente.
+            # Cada tbody representa un grupo real, accesible con scope=rowgroup.
+            body.append('<tr class="inv-group-start">' if index == 0 else '<tr>')
+            if index == 0:
+                body.append(
+                    f'<th scope="rowgroup" class="depot-cell" rowspan="{len(warehouse_products)}">'
+                    f'<span>{depot}</span></th>'
+                )
+            body.append(
+                f'<td class="product-cell">{product_chip(str(row["product"]))}</td>'
+                + ''.join(
+                    f'<td class="band-cell band-{key}">{value}</td>'
+                    for key, value in zip(BUCKETS, bands)
+                )
+                + f'<td class="total-cell">{total_sacks:,}</td>'
+                + f'<td class="tonnes-cell">{total_tonnes:,}</td>'
+                + '<td class="odoo-cell"></td><td class="odoo-cell"></td></tr>'
+            )
+            band_cards = ''.join(
+                f'<div class="mobile-band band-{key}"><span>{label}</span><b>{value}</b></div>'
+                for key, label, value in zip(
+                    BUCKETS,
+                    ("Verde · 0–10", "Amarillo · 11–15", "Naranja · 16–20", "Rojo · 21+"),
+                    bands,
+                )
+            )
+            mobile_cards.append(
+                '<article class="inv-mobile-card">'
+                f'<div class="inv-card-head">{product_chip(str(row["product"]))}</div>'
+                f'<div class="inv-card-total">{total_sacks:,} <span>sacos · {total_tonnes:,} ton</span></div>'
+                f'<div class="mobile-bands">{band_cards}</div>'
+                '<div class="inv-card-orders"><span>PEDIDOS <b></b></span><span>PEDIDOS (TON) <b></b></span></div>'
+                '</article>'
+            )
+        body.append('</tbody>')
+        # En móviles el nombre de la bodega también aparece solo una vez.
         cards.append(
-            '<article class="inv-mobile-card">'
-            f'<div class="inv-card-head"><b>{depot}</b>{product_chip(str(row["product"]))}</div>'
-            f'<div class="inv-card-total">{total_sacks:,} <span>sacos · {total_tonnes:,} ton</span></div>'
-            f'<div class="mobile-bands">{band_cards}</div>'
-            '<div class="inv-card-orders"><span>PEDIDOS <b></b></span><span>PEDIDOS (TON) <b></b></span></div>'
-            '</article>'
+            f'<section class="inv-mobile-warehouse" aria-label="Bodega {depot}">'
+            f'<div class="inv-mobile-warehouse-title">{depot}</div>'
+            '<div class="inv-mobile-products">' + ''.join(mobile_cards) + '</div>'
+            '</section>'
         )
     totals = report["totals"]
     assert isinstance(totals, dict)
@@ -401,8 +433,8 @@ def _report_html(report: dict[str, object]) -> str:
         '<col class="col-depot"><col class="col-product">'
         '<col class="col-band" span="4"><col class="col-sacks"><col class="col-tonnes">'
         '<col class="col-orders"><col class="col-orders-tonnes">'
-        '</colgroup><thead><tr>' + headers + '</tr></thead><tbody>'
-        + ''.join(body) + footer + '</tbody></table></div></div>'
+        '</colgroup><thead><tr>' + headers + '</tr></thead>'
+        + ''.join(body) + '<tbody class="inv-summary-group">' + footer + '</tbody></table></div></div>'
         '<div class="inv-report-mobile">' + ''.join(cards)
         + f'<div class="inv-mobile-total"><span>TOTAL GENERAL</span><strong>{overall_sacks:,} sacos · {rounded_tonnes(overall_sacks):,} ton</strong></div></div>'
     )
