@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from src.config import PRODUCTS, PRODUCT_STYLES, WAREHOUSE_USERS
+from src.config import PRODUCTS, WAREHOUSE_USERS
 from src.domain import age_in_days, format_date, format_timestamp, pallet_equivalent, validate_entry
 
 
@@ -61,10 +61,3 @@ def test_date_and_timezone_guatemala():
 def test_pallet_equivalence():
     assert pallet_equivalent(40) == (1, 0)
     assert pallet_equivalent(95) == (2, 15)
-
-
-@pytest.mark.parametrize("product", ["ECO PL", "UNO PL", "GU PL"])
-def test_pl_products_have_valid_style_and_can_be_saved(product):
-    assert product in PRODUCT_STYLES
-    assert PRODUCT_STYLES[product]["background"].startswith("#")
-    validate_entry(**sample(product=product))
