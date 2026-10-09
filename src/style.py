@@ -428,6 +428,52 @@ p { color:#344360; }
 .inv-card-orders > span { min-width:0; overflow-wrap:anywhere; }
 .inv-card-orders b { min-height:15px; }
 
+
+/* ARGOS · Lectura reforzada del semáforo (desktop / pantallas grandes).
+   Mantiene el desplazamiento horizontal cuando 10 columnas no caben sin recortes. */
+@media (min-width:851px) {
+  .inv-report {
+    min-width:1440px;
+    font-size:clamp(20px,1.30vw,27px);
+    line-height:1.35;
+  }
+  .inv-report th, .inv-report td {
+    padding:clamp(15px,1.12vw,23px) clamp(10px,.75vw,16px);
+  }
+  .inv-report thead th {
+    font-size:clamp(19px,1.20vw,25px);
+    line-height:1.32;
+  }
+  .inv-report thead th span {
+    font-size:clamp(16px,.98vw,21px);
+    line-height:1.4;
+  }
+  .inv-report tbody th.depot-cell {
+    font-size:clamp(20px,1.20vw,26px);
+  }
+  .inv-report .product-chip {
+    font-size:clamp(18px,1.07vw,23px);
+    line-height:1.28;
+    padding:9px 13px;
+  }
+  .inv-report tbody tr.inv-warehouse-subtotal-row > *,
+  .inv-report tbody tr.inv-grand-total > * {
+    font-size:clamp(20px,1.24vw,26px)!important;
+    line-height:1.35;
+  }
+}
+/* Dispositivos móviles: crecen los datos sin reducir el área táctil. */
+@media (max-width:850px) {
+  .inv-mobile-warehouse-title { font-size:clamp(19px,4vw,24px); }
+  .inv-card-head .product-chip { font-size:clamp(16px,3.3vw,20px); }
+  .inv-card-total { font-size:clamp(24px,5vw,32px); }
+  .mobile-band { font-size:clamp(15px,3vw,18px); }
+  .mobile-band b { font-size:clamp(20px,4vw,25px); }
+  .inv-mobile-warehouse-subtotal-head strong,
+  .inv-mobile-warehouse-subtotal-head span { font-size:clamp(17px,3.2vw,21px); }
+  .inv-card-orders { font-size:clamp(14px,2.7vw,17px); }
+}
+
 </style>
 """
 
