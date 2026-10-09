@@ -552,13 +552,14 @@ def supervisor_dashboard() -> None:
     metric1, metric2, metric3 = st.columns(3, gap="medium")
     ageing_sacks = sum(int(report["totals"][key]) for key in ("amarillo", "naranja", "rojo"))
     for col, label, value, description in (
-        (metric1, "SACOS REGISTRADOS", f"{report['sacks']:,}", "Ingresos capturados (no saldo neto)"),
-        (metric2, "TONELADAS REGISTRADAS", f"{rounded_tonnes(report['sacks']):,}", "Equivalencia: 0.0425 ton/saco"),
+        (metric1, "SACOS REGISTRADOS", f"{report['sacks']:,}", ""),
+        (metric2, "TONELADAS REGISTRADAS", f"{rounded_tonnes(report['sacks']):,}", ""),
         (metric3, "MÁS DE 10 DÍAS", f"{ageing_sacks:,} sacos", "Antigüedad al día de registro"),
     ):
         with col:
+            helper_html = f'<div class="dash-helper">{e(description)}</div>' if description else ''
             st.markdown(f'<div class="dash-card"><div class="dash-label">{e(label)}</div>'
-                        f'<div class="dash-value">{e(value)}</div><div class="dash-helper">{e(description)}</div></div>', unsafe_allow_html=True)
+                        f'<div class="dash-value">{e(value)}</div>{helper_html}</div>', unsafe_allow_html=True)
     st.write("")
     st.markdown(_report_html(report), unsafe_allow_html=True)
     st.caption(
