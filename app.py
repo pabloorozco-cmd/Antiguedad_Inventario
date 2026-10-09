@@ -342,6 +342,47 @@ def _csv_text(rows: list[list[object]]) -> str:
     return "\ufeff" + output.getvalue()
 
 
+def _warehouse_groups(rows: list[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
+    """Agrupa productos en el orden recibido, sin duplicar bodegas."""
+    groups: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        groups.setdefault(str(row["warehouse"]), []).append(row)
+    return groups
+
+
+def _warehouse_subtotal(rows: list[dict[str, object]]) -> dict[str, int]:
+    """Suma sacos por rango y total, antes de redondear las toneladas."""
+    return {
+        **{band: sum(int(row[band]) for row in rows) for band in BUCKETS},
+        "sacks": sum(int(row["sacks"]) for row in rows),
+    }
+
+
+
+def _summary_csv_rows(report: dict[str, object]) -> list[list[object]]:
+    """Exporta productos y un subtotal por bodega, seguido del total general."""
+    summary_rows: list[list[object]] = [[
+        "Bodega", "Producto", "Verde", "Amarillo", "Naranja", "Rojo",
+        "Total (sacos)", "Total (ton)", "Pedidos", "Pedidos (ton)",
+    ]]
+    for warehouse, products in _warehouse_groups(report["rows"]).items():
+        for row in products:
+            summary_rows.append([
+                warehouse, row["product"], *(int(row[key]) for key in BUCKETS),
+                int(row["sacks"]), rounded_tonnes(row["sacks"]), "", "",
+            ])
+        subtotal = _warehouse_subtotal(products)
+        summary_rows.append([
+            warehouse, "SUBTOTAL", *(subtotal[key] for key in BUCKETS),
+            subtotal["sacks"], rounded_tonnes(subtotal["sacks"]), "", "",
+        ])
+    summary_rows.append([
+        "TOTAL GENERAL", "", *(int(report["totals"][key]) for key in BUCKETS),
+        int(report["sacks"]), rounded_tonnes(report["sacks"]), "", "",
+    ])
+    return summary_rows
+
+
 def _report_html(report: dict[str, object]) -> str:
     """Semáforo en sacos, toneladas redondeadas y columnas Odoo reservadas.
 
@@ -359,17 +400,16 @@ def _report_html(report: dict[str, object]) -> str:
         '<th scope="col">PEDIDOS</th>'
         '<th scope="col">PEDIDOS<br><span>(TON)</span></th>'
     )
-    # Agrupación visual por bodega: una sola celda vertical (rowspan)
-    # para cada bodega, independientemente del número de productos.
-    grouped: dict[str, list[dict[str, object]]] = {}
-    for row in report["rows"]:
-        assert isinstance(row, dict)
-        grouped.setdefault(str(row["warehouse"]), []).append(row)
+    # Cada bodega comparte una celda vertical, incluidos sus subtotales.
+    grouped = _warehouse_groups(report["rows"])
 
     body: list[str] = []
     cards: list[str] = []
     for warehouse, warehouse_products in grouped.items():
         depot = e(warehouse)
+        subtotal = _warehouse_subtotal(warehouse_products)
+        subtotal_sacks = subtotal["sacks"]
+        subtotal_tonnes = rounded_tonnes(subtotal_sacks)
         body.append(f'<tbody class="inv-warehouse-group" aria-label="Bodega {depot}">')
         mobile_cards: list[str] = []
         for index, row in enumerate(warehouse_products):
@@ -381,7 +421,7 @@ def _report_html(report: dict[str, object]) -> str:
             body.append('<tr class="inv-group-start">' if index == 0 else '<tr>')
             if index == 0:
                 body.append(
-                    f'<th scope="rowgroup" class="depot-cell" rowspan="{len(warehouse_products)}">'
+                    f'<th scope="rowgroup" class="depot-cell" rowspan="{len(warehouse_products) + 1}">'
                     f'<span>{depot}</span></th>'
                 )
             body.append(
@@ -410,7 +450,29 @@ def _report_html(report: dict[str, object]) -> str:
                 '<div class="inv-card-orders"><span>PEDIDOS <b></b></span><span>PEDIDOS (TON) <b></b></span></div>'
                 '</article>'
             )
+        # Subtotal del grupo: BODEGA sigue siendo una celda única y centrada.
+        # Las columnas de Odoo se mantienen vacías hasta conectar el ERP.
+        body.append(
+            '<tr class="inv-warehouse-subtotal-row">'
+            '<th scope="row" class="inv-subtotal-label">SUBTOTAL</th>'
+            + ''.join(f'<td>{subtotal[key]:,}</td>' for key in BUCKETS)
+            + f'<td>{subtotal_sacks:,}</td><td>{subtotal_tonnes:,}</td>'
+            + '<td></td><td></td></tr>'
+        )
         body.append('</tbody>')
+        # En móviles se resume también cada bodega tras sus productos.
+        subtotal_bands = ''.join(
+            f'<div class="mobile-band band-{key}"><span>{label}</span><b>{subtotal[key]:,}</b></div>'
+            for key, label in zip(BUCKETS, ("Verde · 0–10", "Amarillo · 11–15", "Naranja · 16–20", "Rojo · 21+"))
+        )
+        mobile_cards.append(
+            '<div class="inv-mobile-warehouse-subtotal">'
+            '<div class="inv-mobile-warehouse-subtotal-head">'
+            '<strong>SUBTOTAL DE BODEGA</strong>'
+            f'<span>{subtotal_sacks:,} sacos · {subtotal_tonnes:,} ton</span></div>'
+            f'<div class="mobile-bands">{subtotal_bands}</div>'
+            '</div>'
+        )
         # En móviles el nombre de la bodega también aparece solo una vez.
         cards.append(
             f'<section class="inv-mobile-warehouse" aria-label="Bodega {depot}">'
@@ -505,16 +567,7 @@ def supervisor_dashboard() -> None:
         "Son registros capturados, no existencias netas."
     )
 
-    summary_rows = [["Bodega", "Producto", "Verde", "Amarillo", "Naranja", "Rojo", "Total (sacos)", "Total (ton)", "Pedidos", "Pedidos (ton)"]]
-    for row in report["rows"]:
-        summary_rows.append([
-            row["warehouse"], row["product"], *(int(row[key]) for key in BUCKETS),
-            int(row["sacks"]), rounded_tonnes(row["sacks"]), "", "",
-        ])
-    summary_rows.append([
-        "TOTAL GENERAL", "", *(int(report["totals"][key]) for key in BUCKETS),
-        int(report["sacks"]), rounded_tonnes(report["sacks"]), "", "",
-    ])
+    summary_rows = _summary_csv_rows(report)
     st.download_button(
         "Descargar semáforo (CSV)", data=_csv_text(summary_rows),
         file_name=f"semaforo_capturas_{selected_day.isoformat()}.csv", mime="text/csv",
