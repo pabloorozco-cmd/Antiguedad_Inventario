@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from src.report import age_band, build_daily_summary, configured_weights, day_bounds_utc
+from src.report import age_band, build_daily_summary, configured_weights, day_bounds_utc, rounded_tonnes
 
 
 @pytest.mark.parametrize("days,expected", [
@@ -88,3 +88,25 @@ def test_pl_products_appear_separately_in_supervisor_summary():
     assert by_product["GU PL"]["sacks"] == 20
     assert result["sacks"] == 260
     assert result["weights_missing"] == ("UNO", "ECO PL", "UNO PL", "GU PL")
+
+
+@pytest.mark.parametrize("sacks,tonnes", [
+    (0, 0), (40, 2), (80, 3), (1000, 43), (1100, 47), (2100, 89), (3240, 138),
+    (200, 9), (20, 1), (400, 17),
+])
+def test_fixed_conversion_rounds_to_whole_tonnes(sacks, tonnes):
+    assert rounded_tonnes(sacks) == tonnes
+
+
+def test_fixed_conversion_no_float_and_negative_rejected():
+    assert rounded_tonnes(Decimal("42.5")) == 2
+    with pytest.raises(ValueError):
+        rounded_tonnes(-1)
+
+
+def test_general_total_converts_after_aggregation():
+    report = build_daily_summary([sample(sacks=40), sample(product="ECO", sacks=40)], date(2026, 10, 8))
+    assert report["sacks"] == 80
+    assert rounded_tonnes(report["sacks"]) == 3
+    assert sum(rounded_tonnes(r["sacks"]) for r in report["rows"]) == 4
+    # En este caso la suma de filas redondeadas difiere del total exacto redondeado.
