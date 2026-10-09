@@ -466,7 +466,7 @@ p { color:#344360; }
 
 
 /* ARGOS · Lectura reforzada del semáforo (desktop / pantallas grandes).
-   Mantiene el desplazamiento horizontal cuando 10 columnas no caben sin recortes. */
+   Mantiene el desplazamiento horizontal cuando la tabla no cabe sin recortes. */
 @media (min-width:851px) {
   .inv-report {
     min-width:1440px;
@@ -523,6 +523,26 @@ p { color:#344360; }
 .inv-mobile-total small { flex:0 0 100%; font-weight:700; font-size:clamp(13px,3vw,16px); color:#E3C4D9; }
 @media(max-width:640px) {
   .odoo-live-context { padding:13px 14px; font-size:14px; align-items:flex-start; }
+}
+
+/* Nueve columnas: seis métricas ARGOS y dos Odoo sin sacrificar legibilidad. */
+.inv-report col.col-depot { width:13%; }
+.inv-report col.col-product { width:12%; }
+.inv-report col.col-band { width:10%; }
+.inv-report col.col-tonnes { width:12%; }
+.inv-report col.col-orders { width:11%; }
+.inv-report col.col-orders-tonnes { width:12%; }
+@media(min-width:851px) {
+  .inv-report { min-width:1320px; }
+}
+/* Tabs de captura y semáforo: cómodos para móvil y TV. */
+[data-testid="stTabs"] button[role="tab"] {
+  font-size:clamp(16px,1.06vw,21px)!important;
+  font-weight:800!important;
+  min-height:55px!important;
+}
+@media(max-width:640px) {
+  [data-testid="stTabs"] button[role="tab"] { font-size:15px!important; }
 }
 
 </style>
