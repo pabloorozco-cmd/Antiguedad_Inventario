@@ -52,15 +52,19 @@ p { color:#344360; }
 .description { color:#79869B; font-size:13px; line-height:1.55; margin-top:8px; }
 .section-title { font:800 24px/1.2 'Manrope',sans-serif; letter-spacing:-.043em; margin:12px 0 8px; color:#071D49; }
 .section-sub { font-size:13px; color:#7A8798; margin:0 0 17px; }
+
+.report-context { font-size:clamp(14px,.96vw,18px); color:#7A8798; font-weight:650; margin:10px 0 8px; }
+.report-title { font:800 clamp(34px,2.65vw,48px)/1.08 'Manrope',sans-serif; letter-spacing:-.04em; margin:8px 0 10px; color:#071D49; }
+.report-sub { font-size:clamp(16px,1.08vw,20px); line-height:1.6; color:#5B6D86; max-width:1280px; margin:0 0 20px; }
 .welcome { background:linear-gradient(120deg, #071D49, #0C2C59); color:#FFF; border-radius:23px; padding:27px 30px; min-height:152px; overflow:hidden; position:relative; }
 .welcome:after { content:''; height:230px; width:230px; border:36px solid rgba(196,214,0,.11); border-radius:50%; position:absolute; right:-70px; top:-110px; }
 .welcome small { color:#C4D600; font-weight:800; letter-spacing:.15em; font-size:10px; text-transform:uppercase; }
 .welcome h2 { color:#FFF; font:800 27px/1.2 'Manrope',sans-serif; margin:12px 0; position:relative; }
 .welcome p { color:#CDDAE9; font-size:13px; margin:0; position:relative; }
-.dash-card { border:1px solid #E6EBF1; background:white; border-radius:17px; padding:clamp(20px,1.45vw,29px); box-shadow:0 10px 25px rgba(31,48,74,.035); min-height:157px; display:flex; flex-direction:column; justify-content:center; gap:7px; }
-.dash-label { color:#344B68; font-weight:850; font-size:clamp(15px,1.03vw,21px); line-height:1.32; text-transform:uppercase; letter-spacing:.045em; }
-.dash-value { color:#071D49; font:800 clamp(34px,2.2vw,47px)/1.13 'Manrope',sans-serif; letter-spacing:-.035em; margin-top:5px; font-variant-numeric:tabular-nums; }
-.dash-helper { font-size:clamp(14px,.9vw,19px); color:#50637D; line-height:1.42; margin-top:1px; font-weight:550; }
+.dash-card { border:1px solid #DCE4EF; background:white; border-radius:19px; padding:clamp(24px,1.55vw,34px); box-shadow:0 14px 34px rgba(7,29,73,.07); min-height:172px; display:flex; flex-direction:column; justify-content:center; gap:10px; }
+.dash-label { color:#2D496E; font-weight:850; font-size:clamp(17px,1.08vw,22px); line-height:1.28; text-transform:uppercase; letter-spacing:.055em; }
+.dash-value { color:#071D49; font:800 clamp(42px,2.55vw,56px)/1.08 'Manrope',sans-serif; letter-spacing:-.04em; margin-top:4px; font-variant-numeric:tabular-nums; }
+.dash-helper { font-size:clamp(16px,.98vw,20px); color:#50637D; line-height:1.45; margin-top:2px; font-weight:600; }
 .form-note { border:1px solid #E4E9F0; background:#FFF; border-radius:16px; padding:15px 17px; display:flex; align-items:center; gap:12px; font-size:12px; line-height:1.5; color:#607087; }
 .note-icon { border-radius:10px; width:35px; height:35px; flex-shrink:0; background:#EFF4D4; color:#071D49; display:flex; align-items:center; justify-content:center; font-weight:800; }
 .product-chip {display:inline-block; padding:6px 12px; border-radius:7px; font-size:10px; font-weight:900; letter-spacing:.04em; }
@@ -89,6 +93,8 @@ p { color:#344360; }
 .hero-title { font-size:clamp(30px,3.1vw,59px); }
 .welcome h2 { font-size:clamp(25px,2.4vw,37px); }
 .section-title { font-size:clamp(23px,2vw,32px); }
+.report-title { font-size:clamp(34px,2.65vw,48px); }
+.report-sub { font-size:clamp(16px,1.08vw,20px); }
 .hero,.welcome,.dash-card,.form-note { overflow-wrap:anywhere; }
 .supervisor-access { border-radius:13px; border:1px solid #E1E8EE; padding:15px 18px; background:white; margin:7px 0 14px; color:#071D49; font-size:13px; }
 .supervisor-access small { color:#687893; font-size:12px; }
@@ -120,8 +126,10 @@ p { color:#344360; }
   .hero { min-height:440px; padding:47px; }
   .welcome { padding:38px 42px; }
   .section-sub,.welcome p { font-size:clamp(14px,.92vw,18px); }
-  .dash-card { padding:clamp(24px,1.6vw,34px); }
-  .dash-value { font-size:clamp(37px,2.3vw,50px); }
+  .report-title { font-size:clamp(42px,2.7vw,56px); }
+  .report-sub { font-size:clamp(18px,1.08vw,21px); }
+  .dash-card { padding:clamp(26px,1.7vw,36px); }
+  .dash-value { font-size:clamp(42px,2.45vw,58px); }
   .inv-report th,.inv-report td { padding-top:19px; padding-bottom:19px; }
 }
 @media(max-width:1050px) {
@@ -170,9 +178,11 @@ p { color:#344360; }
   .welcome p { font-size:12px; }
   .section-title { font-size:23px; }
   .section-sub { font-size:12px; }
-  .dash-card { min-height:145px; padding:19px 18px; gap:7px; }
-  .dash-label { font-size:15px; line-height:1.3; }
-  .dash-value { font-size:clamp(32px,8vw,41px); }
+  .report-title { font-size:31px; line-height:1.08; }
+  .report-sub { font-size:14px; line-height:1.55; margin-bottom:16px; }
+  .dash-card { min-height:155px; padding:21px 20px; gap:8px; }
+  .dash-label { font-size:16px; line-height:1.32; }
+  .dash-value { font-size:clamp(36px,8vw,44px); }
   .dash-helper { font-size:14px; line-height:1.45; }
   .form-note { padding:12px; align-items:flex-start; }
   .inv-report-mobile { grid-template-columns:minmax(0,1fr); gap:10px; }
@@ -185,6 +195,32 @@ p { color:#344360; }
   .brand-word { font-size:17px; }
   .inv-mobile-card { padding:12px; }
   .mobile-band { padding:8px; }
+}
+
+
+/* Encabezado y filtros del semáforo del supervisor. */
+[class*="st-key-report_day"] label,
+[class*="st-key-report_warehouse"] label {
+  color:#071D49!important;
+  font-size:clamp(16px,1vw,20px)!important;
+  font-weight:850!important;
+  letter-spacing:-.01em;
+}
+[class*="st-key-report_day"] input,
+[class*="st-key-report_warehouse"] [data-baseweb="select"] > div {
+  min-height:58px!important;
+  border-radius:14px!important;
+  font-size:clamp(17px,1.03vw,21px)!important;
+  font-weight:650!important;
+}
+[class*="st-key-report_warehouse"] [data-baseweb="select"] span,
+[class*="st-key-report_warehouse"] [data-baseweb="select"] div,
+[class*="st-key-report_day"] input {
+  color:#071D49!important;
+}
+@media(max-width:640px) {
+  [class*="st-key-report_day"] input,
+  [class*="st-key-report_warehouse"] [data-baseweb="select"] > div { min-height:54px!important; }
 }
 
 /* Botón de cierre de sesión: rojo de acción y alto contraste.
