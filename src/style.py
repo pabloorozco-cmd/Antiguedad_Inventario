@@ -290,6 +290,47 @@ p { color:#344360; }
   .mobile-band b { font-size:18px; }
 }
 
+
+/* Bodegas agrupadas: la celda con rowspan abarca todos sus productos.
+   Evita que las reglas nth-child antiguas desalineen cifras en filas sin BODEGA. */
+.inv-report tbody th.depot-cell {
+  vertical-align:middle!important;
+  text-align:center!important;
+  font-family:'Manrope','Segoe UI',sans-serif;
+  font-size:clamp(16px,1.02vw,22px);
+  font-weight:850;
+  line-height:1.35;
+  color:#071D49;
+  background:#F1F5FA;
+  white-space:normal;
+  overflow-wrap:break-word;
+  border-right:2px solid #D4DFEA;
+  padding:16px 10px;
+}
+.inv-report tbody td.product-cell { text-align:left!important; font-weight:750; }
+.inv-report tbody td.band-cell,
+.inv-report tbody td.total-cell,
+.inv-report tbody td.tonnes-cell,
+.inv-report tbody td.odoo-cell { text-align:right!important; }
+.inv-report tbody.inv-warehouse-group:not(:first-of-type) tr:first-child > * {
+  border-top:2px solid #C8D4E3;
+}
+/* Móviles: encabezado único por bodega y fichas agrupadas debajo. */
+.inv-mobile-warehouse { grid-column:1/-1; min-width:0; }
+.inv-mobile-warehouse-title {
+  background:#EAF0F7;
+  border-left:5px solid #C4D600;
+  border-radius:10px;
+  padding:12px 16px;
+  margin-bottom:10px;
+  font:850 clamp(16px,2.5vw,21px)/1.35 'Manrope',sans-serif;
+  color:#071D49;
+}
+.inv-mobile-products { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+@media(max-width:640px) {
+  .inv-mobile-products { grid-template-columns:minmax(0,1fr); gap:10px; }
+}
+
 </style>
 """
 
