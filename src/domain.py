@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from src.config import MAX_SACKS_PER_ENTRY, PRODUCTS, SACKS_PER_PALLET, TIMEZONE, WAREHOUSE_USERS
@@ -73,3 +74,36 @@ def validate_entry(
         raise ValueError("La fecha de producción no puede ser posterior a hoy.")
     if production < date(2000, 1, 1):
         raise ValueError("La fecha de producción está fuera del rango permitido.")
+
+
+def validate_tonnes_entry(
+    *, employee: str, home_warehouse: str, active_warehouse: str,
+    support: bool, product: str, tonnes: Decimal, production: date,
+    manager: bool = False, reference: date | None = None,
+) -> Decimal:
+    """Valida ingreso en TON; no lo convierte a sacos ni lo redondea a enteros."""
+    if home_warehouse not in WAREHOUSE_USERS or active_warehouse not in WAREHOUSE_USERS:
+        raise ValueError("La bodega seleccionada no es válida.")
+    from src.config import SUPERVISOR_NAME
+    if manager:
+        if employee != SUPERVISOR_NAME or home_warehouse != active_warehouse or support:
+            raise ValueError("La captura de gerencia requiere una bodega válida.")
+    elif employee not in WAREHOUSE_USERS[home_warehouse]:
+        raise ValueError("La persona seleccionada no pertenece a su bodega habitual.")
+    elif bool(support) != (home_warehouse != active_warehouse):
+        raise ValueError("El modo Apoyo no coincide con la bodega activa.")
+    if product not in PRODUCTS:
+        raise ValueError("Producto inválido.")
+    try:
+        value = Decimal(str(tonnes))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("La cantidad en toneladas no es válida.") from exc
+    if not value.is_finite() or value <= 0 or value > Decimal("100000"):
+        raise ValueError("Ingresa toneladas positivas, hasta 100.000 ton por captura.")
+    if value.as_tuple().exponent < -4:
+        raise ValueError("Ingresa máximo cuatro decimales para las toneladas.")
+    if not isinstance(production, date) or isinstance(production, datetime):
+        raise ValueError("La fecha de producción no es válida.")
+    if production > (reference or today_guatemala()) or production < date(2000, 1, 1):
+        raise ValueError("La fecha de producción está fuera del rango permitido.")
+    return value
