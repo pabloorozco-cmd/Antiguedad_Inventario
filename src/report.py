@@ -1,42 +1,30 @@
-"""Agregaciones puras del semáforo diario de CAPTURAS (no saldos de inventario)."""
+"""Informe diario por bodega y producto, expresado exclusivamente en toneladas.
 
+Los registros antiguos en sacos se migran a tonnes = sacks * 0.0425 en Supabase.
+El reporte NO expresa existencias netas, únicamente capturas físicas del día.
+"""
 from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from typing import Any, Mapping
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from src.config import PRODUCTS, TIMEZONE, WAREHOUSE_USERS
 
 BUCKETS = ("verde", "amarillo", "naranja", "rojo")
-TONNES_PER_SACK = Decimal("0.0425")
-
-
-def rounded_tonnes(sacks: int | Decimal) -> int:
-    """Equivalencia fija aprobada para el reporte: 42.5 kg por saco.
-
-    Redondea al entero más cercano con .5 hacia arriba; no usa floats.
-    Los totales generales se calculan desde los sacos agregados y después
-    se redondean, para evitar errores por redondeos parciales.
-    """
-    if Decimal(str(sacks)) < 0:
-        raise ValueError("La cantidad de sacos no puede ser negativa.")
-    return int((Decimal(str(sacks)) * TONNES_PER_SACK).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+TONS_PER_SACK = Decimal("0.0425")
 
 
 def day_bounds_utc(selected_date: date) -> tuple[str, str]:
-    """Filtra por fecha GUATEMALA, no por el día UTC del servidor."""
     tz = ZoneInfo(TIMEZONE)
     start = datetime.combine(selected_date, datetime.min.time(), tzinfo=tz)
     end = datetime.combine(selected_date + timedelta(days=1), datetime.min.time(), tzinfo=tz)
     return start.astimezone(timezone.utc).isoformat(), end.astimezone(timezone.utc).isoformat()
 
 
-
 def age_band(production: date, reference: date) -> str:
-    """Rojo incluye edades superiores a 30 días; 0 días pertenece a verde."""
     days = (reference - production).days
     if days < 0:
         return "inconsistente"
@@ -49,44 +37,43 @@ def age_band(production: date, reference: date) -> str:
     return "rojo"
 
 
-def configured_weights(raw: Any) -> dict[str, Decimal]:
-    """Los kg/saco nunca se deducen; deben configurarse explícitamente."""
-    if raw is None:
-        return {}
-    if not isinstance(raw, Mapping):
-        raise ValueError("PRODUCT_WEIGHT_KG debe ser una tabla de producto = kg por saco.")
-    result: dict[str, Decimal] = {}
-    for product, value in raw.items():
-        if product not in PRODUCTS:
-            raise ValueError(f"Producto inválido en PRODUCT_WEIGHT_KG: {product}")
-        try:
-            weight = Decimal(str(value))
-        except InvalidOperation as exc:
-            raise ValueError(f"Peso inválido para {product}.") from exc
-        if not weight.is_finite() or not (0 < weight <= 1000):
-            raise ValueError(f"El peso de {product} debe ser positivo (kg por saco).")
-        result[str(product)] = weight
-    return result
+def record_tonnes(record: dict[str, Any]) -> Decimal:
+    """Prefiere tonnes almacenadas. Soporta registros previos sin migrar para pruebas."""
+    raw = record.get("tonnes")
+    try:
+        if raw is not None:
+            ton = Decimal(str(raw))
+        elif record.get("sacks") is not None:
+            ton = Decimal(str(record["sacks"])) * TONS_PER_SACK
+        else:
+            raise ValueError("Falta cantidad")
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError("Cantidad inválida") from exc
+    if not ton.is_finite() or ton <= 0:
+        raise ValueError("Cantidad no positiva")
+    return ton
+
+
+def rounded_tonnes(value: object) -> int:
+    """El parámetro YA está expresado en toneladas; redondeo sólo visual."""
+    value = Decimal(str(value))
+    return int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def format_tonnes(value: object, *, places: int = 4) -> str:
+    number = Decimal(str(value))
+    return f"{number:,.{places}f}".rstrip("0").rstrip(".")
 
 
 def build_daily_summary(
-    records: list[dict[str, Any]],
-    reference: date,
-    *,
-    warehouse: str = "Todas",
-    weights_kg: Mapping[str, Decimal] | None = None,
+    records: list[dict[str, Any]], reference: date, *, warehouse: str = "Todas", **_ignored: Any
 ) -> dict[str, Any]:
-    """Agrupa CAPTURAS de la fecha seleccionada, prefiltradas en la consulta por created_at.
-
-    No inventa salidas, pedidos, lotes ni existencias. Omite capturas anómalas del total,
-    reportándolas para revisión sin convertirlas en inventario verde.
-    """
     if warehouse != "Todas" and warehouse not in WAREHOUSE_USERS:
         raise ValueError("Bodega inválida.")
-    weights = dict(weights_kg or {})
     groups: dict[tuple[str, str], dict[str, Any]] = {}
     valid: list[dict[str, Any]] = []
     anomalous: list[dict[str, Any]] = []
+    total_tonnes = Decimal("0")
     for record in records:
         depot = str(record.get("warehouse", ""))
         product = str(record.get("product", ""))
@@ -97,27 +84,23 @@ def build_daily_summary(
             continue
         try:
             production = date.fromisoformat(str(record["production_date"]))
-            sacks = int(record["sacks"])
+            tonnes = record_tonnes(record)
         except (ValueError, KeyError, TypeError):
             anomalous.append(record)
             continue
-        if sacks <= 0 or age_band(production, reference) == "inconsistente":
+        band = age_band(production, reference)
+        if band == "inconsistente":
             anomalous.append(record)
             continue
-        bucket = age_band(production, reference)
         key = (depot, product)
         if key not in groups:
-            groups[key] = {"warehouse": depot, "product": product, "sacks": 0, "entries": 0, "bands": defaultdict(int)}
-        groups[key]["sacks"] += sacks
+            groups[key] = {"warehouse": depot, "product": product, "tonnes": Decimal("0"), "entries": 0,
+                           "bands": defaultdict(lambda: Decimal("0"))}
+        groups[key]["tonnes"] += tonnes
         groups[key]["entries"] += 1
-        groups[key]["bands"][bucket] += sacks
+        groups[key]["bands"][band] += tonnes
+        total_tonnes += tonnes
         valid.append(record)
-    used_products = {str(r["product"]) for r in valid}
-    as_tonnes = bool(used_products) and used_products.issubset(weights.keys())
-
-    def quantity(sacks: int, product: str) -> Decimal:
-        return Decimal(sacks) * weights[product] / Decimal(1000) if as_tonnes else Decimal(sacks)
-
     rows: list[dict[str, Any]] = []
     for depot in WAREHOUSE_USERS:
         if warehouse != "Todas" and depot != warehouse:
@@ -127,21 +110,12 @@ def build_daily_summary(
             if group is None:
                 continue
             rows.append({
-                "warehouse": depot,
-                "product": product,
-                "entries": group["entries"],
-                "sacks": group["sacks"],
-                "total": quantity(group["sacks"], product),
-                **{key: quantity(group["bands"].get(key, 0), product) for key in BUCKETS},
+                "warehouse": depot, "product": product, "entries": group["entries"],
+                "tonnes": group["tonnes"],
+                **{band: group["bands"].get(band, Decimal("0")) for band in BUCKETS},
             })
-    totals = {key: sum((row[key] for row in rows), Decimal(0)) for key in (*BUCKETS, "total")}
+    totals = {band: sum((row[band] for row in rows), Decimal("0")) for band in BUCKETS}
     return {
-        "rows": rows,
-        "totals": totals,
-        "records": valid,
-        "anomalous": anomalous,
-        "count": len(valid),
-        "sacks": sum(int(r["sacks"]) for r in valid),
-        "unit": "tn" if as_tonnes else "sacos",
-        "weights_missing": tuple(product for product in PRODUCTS if product in used_products and product not in weights),
+        "rows": rows, "totals": totals, "tonnes": total_tonnes,
+        "records": valid, "anomalous": anomalous, "count": len(valid), "unit": "ton",
     }
