@@ -146,7 +146,7 @@ def combine_report(report: dict, snapshot: dict | None, warehouse: str = "Todas"
                 continue
             if (wh, product) not in existing:
                 existing[(wh, product)] = {
-                    "warehouse": wh, "product": product, "entries": 0, "sacks": 0,
+                    "warehouse": wh, "product": product, "entries": 0, "tonnes": Decimal("0"),
                     **{band: Decimal("0") for band in ("verde", "amarillo", "naranja", "rojo")},
                 }
     rows = []
