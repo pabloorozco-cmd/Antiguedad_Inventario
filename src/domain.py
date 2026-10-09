@@ -107,3 +107,19 @@ def validate_tonnes_entry(
     if production > (reference or today_guatemala()) or production < date(2000, 1, 1):
         raise ValueError("La fecha de producción está fuera del rango permitido.")
     return value
+
+
+def validate_sacks_entry(
+    *, employee: str, home_warehouse: str, active_warehouse: str,
+    support: bool, product: str, sacks: int, production: date,
+    manager: bool = False, reference: date | None = None,
+) -> Decimal:
+    """Valida la captura entera en sacos y devuelve toneladas exactas (4 decimales)."""
+    if type(sacks) is not int or not (1 <= sacks <= MAX_SACKS_PER_ENTRY):
+        raise ValueError("La cantidad de sacos debe ser un entero positivo válido.")
+    tonnes = Decimal(sacks) * Decimal("0.0425")
+    return validate_tonnes_entry(
+        employee=employee, home_warehouse=home_warehouse,
+        active_warehouse=active_warehouse, support=support, product=product,
+        tonnes=tonnes, production=production, manager=manager, reference=reference,
+    )
