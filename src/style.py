@@ -331,6 +331,53 @@ p { color:#344360; }
   .inv-mobile-products { grid-template-columns:minmax(0,1fr); gap:10px; }
 }
 
+
+/* Subtotal por bodega. Se intercala después de sus productos, antes del siguiente grupo. */
+.inv-report tbody tr.inv-warehouse-subtotal-row > * {
+  background:#E7EFF8!important;
+  color:#071D49!important;
+  border-top:2px solid #AFC1D6!important;
+  border-bottom:2px solid #CAD8E8!important;
+  font-size:clamp(15px,1.02vw,21px)!important;
+  font-weight:850!important;
+  text-align:right!important;
+  font-variant-numeric:tabular-nums;
+}
+.inv-report tbody tr.inv-warehouse-subtotal-row th.inv-subtotal-label {
+  text-align:left!important;
+  color:#071D49!important;
+  letter-spacing:.025em;
+  white-space:normal;
+}
+.inv-report tbody tr.inv-warehouse-subtotal-row > td:nth-last-child(-n + 2) {
+  background:#E7EFF8!important;
+}
+.inv-mobile-warehouse-subtotal {
+  grid-column:1/-1;
+  background:#E7EFF8;
+  border:1px solid #B7CBE0;
+  border-left:5px solid #071D49;
+  border-radius:14px;
+  padding:15px;
+  margin-top:3px;
+  color:#071D49;
+}
+.inv-mobile-warehouse-subtotal-head {
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:space-between;
+  align-items:center;
+  gap:7px 18px;
+  margin-bottom:12px;
+}
+.inv-mobile-warehouse-subtotal-head strong {
+  font:850 clamp(15px,1.1vw,19px)/1.3 'Manrope',sans-serif;
+}
+.inv-mobile-warehouse-subtotal-head span {
+  font:850 clamp(15px,1.1vw,19px)/1.3 'Manrope',sans-serif;
+  font-variant-numeric:tabular-nums;
+}
+
 </style>
 """
 
