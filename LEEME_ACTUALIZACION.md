@@ -1,32 +1,28 @@
-# ARGOS Guatemala — Ajustes visuales del supervisor
+[LEEME_ACTUALIZACION.md](https://github.com/user-attachments/files/33229760/LEEME_ACTUALIZACION.md)
+# ARGOS Guatemala — Colores Odoo en el semáforo
 
-## Contenido
+## Archivos modificados
 
-Solo se modificaron estos dos archivos:
+1. `app.py` — reemplaza el archivo principal en la raíz del repositorio.
+2. `src/style.py` — reemplaza el archivo ubicado en la carpeta `src`.
 
-- `app.py`
-- `src/style.py`
+## Qué cambia
 
-## Cambios
+- Encabezados **PEDIDOS** y **PEDIDOS (TON)** con fondo morado Odoo `#A24689` (extraído de la imagen de referencia) y texto blanco.
+- Celdas de ambas columnas con fondo lavanda suave y separación morada respecto a TOTAL (TON).
+- Las celdas Odoo de **SUBTOTAL** y **TOTAL GENERAL** mantienen la identificación morada con tonos adecuados a cada fila.
+- En smartphones y tabletas pequeñas, las fichas Odoo muestran el mismo lenguaje visual, incluyendo subtotales por bodega.
+- Las celdas permanecen en blanco hasta la futura integración de pedidos y toneladas de Odoo.
+- Sin cambios en los cálculos de sacos/toneladas, clasificación por antigüedad, captura, bodega, CSV ni consultas Supabase.
 
-1. El botón superior **⏻ Salir** (supervisor y operarios) ahora tiene fondo rojo ARGOS complementario, letras blancas, mayor altura, tipografía reforzada, efecto al pasar el cursor y contorno de foco para accesibilidad.
-2. En **TOTAL GENERAL**, todos los valores numéricos (incluido VERDE) quedan alineados a la derecha, igual que los de las filas normales.
-3. Títulos, valores y textos inferiores de las tres tarjetas se muestran en tamaños más grandes y legibles, con ajustes específicos para pantallas grandes y teléfonos.
-4. La paleta ARGOS y el resto de la interfaz se mantienen.
+## Cómo subirlo desde GitHub Web
 
-## Actualizar usando solo GitHub Web
+1. Descomprime el ZIP.
+2. Abre tu repositorio `pabloorozco-cmd/Antiguedad_Inventario` en GitHub Web, rama `main`.
+3. En `app.py`, pulsa **Edit this file** y reemplaza todo su contenido por el archivo `app.py` del ZIP; haz commit.
+4. Repite en `src/style.py` con el archivo `src/style.py` del ZIP; haz commit.
+5. Streamlit Community Cloud debería redesplegar. Refresca la página, de ser necesario con `Ctrl+F5`.
 
-1. Descomprime este ZIP.
-2. En el repositorio, reemplaza **`app.py`** por el que se incluye en la raíz del ZIP.
-3. Reemplaza **`src/style.py`** conservando la carpeta `src`.
-4. Confirma los cambios en la rama `main`. Streamlit redeplegará la aplicación automáticamente.
-5. Si parece igual, recarga forzosamente la página del navegador (`Ctrl + Shift + R`).
+No hace falta actualizar SQL, modificar las tablas Supabase ni los Streamlit Secrets.
 
-No es necesario ejecutar SQL, cambiar credenciales de Supabase ni instalar nuevas dependencias.
-
-## Verificación
-
-- 44 pruebas existentes: superadas.
-- 9 verificaciones de estilos/estructura: superadas.
-- CSS analizado: 132 reglas, cero errores sintácticos detectados.
-- Pendiente: validación visual en la app desplegada (no disponible en este entorno).
+**Nota de alcance:** `PEDIDOS` y `PEDIDOS (TON)` son campos futuros de Odoo y se muestran vacíos; no se han conectado datos del ERP.
