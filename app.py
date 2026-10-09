@@ -17,12 +17,12 @@ import streamlit as st
 
 from src.auth import verify_pin
 from src.config import (
-    APP_TITLE, MAX_SACKS_PER_ENTRY, PRODUCTS, PRODUCT_STYLES,
+    APP_TITLE, MAX_TONNES_PER_ENTRY, PRODUCTS, PRODUCT_STYLES, WAREHOUSE_SUPERVISORS,
     SUPERVISOR_ACCESS, SUPERVISOR_NAME, WAREHOUSE_USERS,
 )
 from src.db import entries_on_date, get_secret, insert_entry, is_configured, recent_entries
-from src.domain import age_in_days, format_date, format_timestamp, now_guatemala, pallet_equivalent, today_guatemala, validate_entry
-from src.report import BUCKETS, age_band, build_daily_summary, rounded_tonnes
+from src.domain import age_in_days, format_date, format_timestamp, today_guatemala, validate_tonnes_entry
+from src.report import BUCKETS, age_band, build_daily_summary, rounded_tonnes, format_tonnes, record_tonnes
 from src.odoo_integration import combine_report, fetch_live_odoo, rounded_odoo_tonnes
 from src.style import apply_style
 
@@ -86,7 +86,7 @@ def login() -> None:
         if is_supervisor:
             employee = SUPERVISOR_NAME
             active, support = "Todas", False
-            st.markdown('<div class="supervisor-access">Supervisión · <b>Rudy Anavisca</b><br><small>Consulta de las tres bodegas</small></div>', unsafe_allow_html=True)
+            st.markdown('<div class="supervisor-access">Gerencia · <b>Rudy Anavisca</b><br><small>Consulta y registro en las tres bodegas</small></div>', unsafe_allow_html=True)
         else:
             employee = st.selectbox("Selecciona tu nombre", options=WAREHOUSE_USERS[home], key="login_employee")
             support = st.toggle("Apoyo · Voy a trabajar en otra bodega", key="login_support")
@@ -100,11 +100,14 @@ def login() -> None:
         if auth_mode not in ("selector", "pin"):
             st.error("AUTH_MODE inválido. Utiliza 'selector' o 'pin' en Secrets.")
             return
+        is_warehouse_supervisor = (not is_supervisor and employee in WAREHOUSE_SUPERVISORS)
+        if is_warehouse_supervisor:
+            st.caption("Acceso de supervisión: registro de toneladas y semáforo, sin PIN.")
         pin = ""
         if is_supervisor:
             pin = st.text_input("PIN de supervisor *", type="password", key="login_supervisor_pin")
             st.caption("Por seguridad, el acceso a los registros globales requiere PIN incluso si los operarios usan selector de nombre.")
-        elif auth_mode == "pin":
+        elif auth_mode == "pin" and not is_warehouse_supervisor:
             pin = st.text_input("PIN personal", type="password", help="PIN definido por el administrador.", key="login_pin")
 
         st.write("")
@@ -118,14 +121,14 @@ def login() -> None:
                 if not verify_pin(pin, str(expected_hash)):
                     st.error("PIN de supervisor incorrecto.")
                     return
-            elif auth_mode == "pin":
+            elif auth_mode == "pin" and not is_warehouse_supervisor:
                 hashes = get_secret("PIN_HASHES", {})
                 expected_hash = hashes.get(employee) if hashes else None
                 if not expected_hash or not verify_pin(pin, str(expected_hash)):
                     st.error("PIN incorrecto o no configurado para este usuario.")
                     return
             st.session_state.identity = {
-                "role": "supervisor" if is_supervisor else "operator",
+                "role": "manager" if is_supervisor else ("warehouse_supervisor" if is_warehouse_supervisor else "operator"),
                 "employee": employee,
                 "home": None if is_supervisor else home,
                 "warehouse": active,
@@ -145,7 +148,7 @@ def logout() -> None:
 
 
 def sidebar(identity: dict[str, object]) -> None:
-    supervisor = identity.get("role") == "supervisor"
+    supervisor = identity.get("role") in ("manager", "warehouse_supervisor")
     with st.sidebar:
         st.markdown('<div class="side-logo">ARGOS</div>', unsafe_allow_html=True)
         st.markdown(
@@ -153,7 +156,7 @@ def sidebar(identity: dict[str, object]) -> None:
             '<div class="side-k">' + ('Supervisor' if supervisor else 'Operador') + '</div>'
             f'<div class="side-v">{e(identity["employee"])}</div>'
             '<div class="side-k">' + ('Alcance' if supervisor else 'Bodega en operación') + '</div>'
-            f'<div class="side-v">{("Todas las bodegas" if supervisor else e(identity["warehouse"]))}</div>'
+            f'<div class="side-v">{("Todas las bodegas" if identity.get("role") == "manager" else e(identity["warehouse"]))}</div>'
             + ('' if supervisor else (
                 '<div class="side-k">Modalidad</div>'
                 f'<div class="side-v">{"Apoyo temporal" if identity["support"] else "Asignación habitual"}</div>'
@@ -183,14 +186,15 @@ def welcome(identity: dict[str, object]) -> None:
     )
 
 
-def supervisor_welcome() -> None:
+def supervisor_welcome(identity: dict[str, object]) -> None:
     brand()
+    first = str(identity["employee"]).split()[0]
     st.markdown(
         '<div class="welcome supervisor-welcome">'
         '<small>PORTAL DE SUPERVISIÓN · IMPORTACIONES</small>'
-        '<h2>Hola, Rudy.</h2>'
-        '<p>Consolida los ingresos registrados en Morales, Morales 2 y Bárcenas. '
-        'Filtra el día de captura y revisa la antigüedad del producto al momento del registro.</p>'
+        f'<h2>Hola, {e(first)}.</h2>'
+        '<p>Registra toneladas de producción, consulta las capturas del día y '
+        'revisa los pedidos actualmente listos en Odoo.</p>'
         '</div>', unsafe_allow_html=True,
     )
 
@@ -206,82 +210,77 @@ def product_chip(product: str) -> str:
 def record_form(identity: dict[str, object]) -> None:
     st.markdown('<div class="section-title">Nuevo registro</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="section-sub">Captura el producto, la cantidad de sacos y su fecha de producción. Los datos de operador, bodega y hora se completan automáticamente.</div>',
+        '<div class="section-sub">Registra la cantidad en toneladas y la fecha de producción. '
+        'La bodega, el responsable y la hora se guardan automáticamente.</div>',
         unsafe_allow_html=True,
     )
+    is_manager = identity.get("role") == "manager"
     with st.form("capture", clear_on_submit=False, border=True):
+        if is_manager:
+            active_warehouse = st.selectbox("Bodega donde se registra *", list(WAREHOUSE_USERS), key="manager_capture_warehouse")
+        else:
+            active_warehouse = str(identity["warehouse"])
         left, right = st.columns(2, gap="large")
         with left:
             product = st.selectbox("Producto *", options=PRODUCTS, index=0)
-            sacks = st.number_input(
-                "Cantidad de sacos *",
-                min_value=1,
-                max_value=MAX_SACKS_PER_ENTRY,
-                value=40,
-                step=1,
-                help="Cada estiba completa equivale a 40 sacos; puedes ingresar otra cantidad.",
+            tonnes = st.number_input(
+                "Cantidad (TON) *", min_value=0.0001,
+                max_value=float(MAX_TONNES_PER_ENTRY),
+                value=1.7000, step=0.0425, format="%.4f",
+                help="Ingresa las toneladas con hasta cuatro decimales.",
             )
         with right:
             production = st.date_input(
-                "Producción *",
-                value=today_guatemala(),
-                min_value=date(2000, 1, 1),
-                max_value=today_guatemala(),
-                format="DD/MM/YYYY",
-                help="Selecciona la fecha real de fabricación que estás registrando.",
+                "Producción *", value=today_guatemala(), min_value=date(2000, 1, 1),
+                max_value=today_guatemala(), format="DD/MM/YYYY",
+                help="Selecciona la fecha real de fabricación.",
             )
-            full, extra = pallet_equivalent(int(sacks))
-            st.caption(f"Equivalencia: {full} estiba(s) completa(s) de 40 sacos" + (f" y {extra} saco(s) adicionales." if extra else "."))
         st.markdown(
             '<div class="form-note"><div class="note-icon">i</div>'
-            '<div><b>Fecha y hora automáticas.</b> El servidor fija el momento exacto del guardado. '
-            'Se muestra en formato DD/MM/AAAA HH:MM:SS, hora de Guatemala.</div></div>',
+            '<div><b>Registro en toneladas.</b> Valores históricos normalizados a toneladas. '
+            'Fecha y hora tomadas del servidor en horario de Guatemala.</div></div>',
             unsafe_allow_html=True,
         )
         st.write("")
         submitted = st.form_submit_button("Guardar registro  →", type="primary", use_container_width=True)
-
-    if submitted:
-        try:
-            validate_entry(
-                employee=str(identity["employee"]),
-                home_warehouse=str(identity["home"]),
-                active_warehouse=str(identity["warehouse"]),
-                support=bool(identity["support"]),
-                product=product,
-                sacks=int(sacks),
-                production=production,
-            )
-        except ValueError as exc:
-            st.error(str(exc))
-            return
-        if not is_configured():
-            st.error("No se guardó: falta configurar SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Secrets.")
-            return
-        request_id = st.session_state.setdefault("pending_request_id", str(uuid.uuid4()))
-        try:
-            with st.spinner("Guardando en Supabase…"):
-                row = insert_entry(
-                    request_id=request_id,
-                    employee=str(identity["employee"]),
-                    home_warehouse=str(identity["home"]),
-                    warehouse=str(identity["warehouse"]),
-                    is_support=bool(identity["support"]),
-                    product=product,
-                    sacks=int(sacks),
-                    production_date=production,
-                )
-        except Exception:
-            LOGGER.exception("Error de Supabase al guardar registro")
-            st.error("No se pudo guardar. Revisa la conexión, los secretos y que hayas ejecutado sql/schema.sql en Supabase. Puedes reintentar sin crear un duplicado.")
-            return
-        st.session_state.pending_request_id = str(uuid.uuid4())
-        stamp = format_timestamp(row["created_at"])
-        st.markdown(
-            f'<div class="status-ok">✓ Registro guardado · {e(product)} · {int(sacks)} sacos · Producción {format_date(production)} · {stamp}</div>',
-            unsafe_allow_html=True,
+    if not submitted:
+        return
+    try:
+        ton_value = validate_tonnes_entry(
+            employee=str(identity["employee"]),
+            home_warehouse=active_warehouse if is_manager else str(identity["home"]),
+            active_warehouse=active_warehouse,
+            support=False if is_manager else bool(identity["support"]),
+            product=product, tonnes=Decimal(str(tonnes)).quantize(Decimal("0.0001")),
+            production=production, manager=is_manager,
         )
-        st.toast("Registro guardado correctamente", icon="✅")
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+    if not is_configured():
+        st.error("Falta configurar Supabase en Secrets.")
+        return
+    request_id = st.session_state.setdefault("pending_request_id", str(uuid.uuid4()))
+    try:
+        with st.spinner("Guardando toneladas en Supabase…"):
+            row = insert_entry(
+                request_id=request_id, employee=str(identity["employee"]),
+                home_warehouse=active_warehouse if is_manager else str(identity["home"]),
+                warehouse=active_warehouse, is_support=False if is_manager else bool(identity["support"]),
+                product=product, tonnes=ton_value, production_date=production,
+            )
+    except Exception:
+        LOGGER.exception("Error al registrar toneladas en Supabase")
+        st.error("No se pudo guardar. Verifica que hayas ejecutado sql/upgrade_tonnes.sql en Supabase. "
+                 "Si ya ejecutaste la migración, revisa los Logs de Streamlit.")
+        return
+    st.session_state.pending_request_id = str(uuid.uuid4())
+    stamp = format_timestamp(row["created_at"])
+    st.markdown(
+        f'<div class="status-ok">✓ Registro guardado · {e(product)} · {format_tonnes(ton_value)} ton · '
+        f'Producción {format_date(production)} · {stamp}</div>', unsafe_allow_html=True,
+    )
+    st.toast("Registro guardado correctamente", icon="✅")
 
 
 def summary_and_recent(identity: dict[str, object]) -> None:
@@ -300,7 +299,7 @@ def summary_and_recent(identity: dict[str, object]) -> None:
     current = [r for r in records if format_timestamp(r["created_at"]).startswith(today.strftime("%d/%m/%Y"))]
     counters = [
         ("Registros recientes", str(len(records)), "Últimos 12 movimientos"),
-        ("Sacos en registros recientes", f"{sum(int(r['sacks']) for r in records):,}", "Capturas mostradas"),
+        ("Toneladas en registros recientes", f"{format_tonnes(sum((record_tonnes(r) for r in records), Decimal('0')), places=2)}", "Capturas mostradas"),
         ("Registros de hoy", str(len(current)), "Entre los últimos 12 registros"),
     ]
     cols = st.columns(3, gap="medium")
@@ -316,14 +315,14 @@ def summary_and_recent(identity: dict[str, object]) -> None:
         st.markdown('<div class="empty-state">Aún no hay registros para esta bodega. Guarda el primero desde el formulario.</div>', unsafe_allow_html=True)
         return
     headers = st.columns([2.0, 1.3, .8, 1.4, 1.15, 2.1], gap="small")
-    for col, title in zip(headers, ("Fecha / hora", "Producto", "Sacos", "Producción", "Edad", "Responsable")):
+    for col, title in zip(headers, ("Fecha / hora", "Producto", "TON", "Producción", "Edad", "Responsable")):
         with col:
             st.caption(title)
     for r in records:
         cols = st.columns([2.0, 1.3, .8, 1.4, 1.15, 2.1], gap="small", vertical_alignment="center")
         with cols[0]: st.caption(format_timestamp(r["created_at"]))
         with cols[1]: st.markdown(product_chip(r["product"]), unsafe_allow_html=True)
-        with cols[2]: st.write(f"**{r['sacks']}**")
+        with cols[2]: st.write(f"**{format_tonnes(record_tonnes(r))}**")
         with cols[3]: st.caption(format_date(r["production_date"]))
         with cols[4]: st.caption(f"{age_in_days(date.fromisoformat(r['production_date']))} días")
         with cols[5]: st.caption(str(r["employee_name"]) + (" · Apoyo" if r.get("is_support") else ""))
@@ -351,13 +350,11 @@ def _warehouse_groups(rows: list[dict[str, object]]) -> dict[str, list[dict[str,
     return groups
 
 
-def _warehouse_subtotal(rows: list[dict[str, object]]) -> dict[str, int]:
-    """Suma sacos por rango y total, antes de redondear las toneladas."""
+def _warehouse_subtotal(rows: list[dict[str, object]]) -> dict[str, Decimal]:
     return {
-        **{band: sum(int(row[band]) for row in rows) for band in BUCKETS},
-        "sacks": sum(int(row["sacks"]) for row in rows),
+        **{band: sum((Decimal(str(row[band])) for row in rows), Decimal("0")) for band in BUCKETS},
+        "tonnes": sum((Decimal(str(row["tonnes"])) for row in rows), Decimal("0")),
     }
-
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -383,173 +380,129 @@ def _order_display(value: int | None, tonnes: Decimal | None) -> tuple[str, str]
 
 
 def _summary_csv_rows(report: dict[str, object]) -> list[list[object]]:
-    """Exporta productos y un subtotal por bodega, seguido del total general."""
+    """Exporta exclusivamente toneladas de ARGOS y pedidos de Odoo."""
     summary_rows: list[list[object]] = [[
-        "Bodega", "Producto", "Verde", "Amarillo", "Naranja", "Rojo",
-        "Total (sacos)", "Total (ton)", "Pedidos", "Pedidos (ton)",
+        "Bodega", "Producto", "Verde (TON)", "Amarillo (TON)",
+        "Naranja (TON)", "Rojo (TON)", "Total (TON)", "Pedidos", "Pedidos (TON)",
     ]]
     for warehouse, products in _warehouse_groups(report["rows"]).items():
         for row in products:
             summary_rows.append([
-                warehouse, row["product"], *(int(row[key]) for key in BUCKETS),
-                int(row["sacks"]), rounded_tonnes(row["sacks"]),
+                warehouse, row["product"], *(rounded_tonnes(row[key]) for key in BUCKETS),
+                rounded_tonnes(row["tonnes"]),
                 "" if row["odoo_orders"] is None else int(row["odoo_orders"]),
-                "" if row["odoo_tonnes"] is None else int(rounded_odoo_tonnes(row["odoo_tonnes"]).replace(",", "")),
+                "" if row["odoo_tonnes"] is None else rounded_tonnes(row["odoo_tonnes"]),
             ])
         subtotal = _warehouse_subtotal(products)
+        odoo_by_wh = report["odoo_unique_by_warehouse"]
         summary_rows.append([
-            warehouse, "SUBTOTAL", *(subtotal[key] for key in BUCKETS),
-            subtotal["sacks"], rounded_tonnes(subtotal["sacks"]),
-        "" if report["odoo_unique_by_warehouse"] is None else report["odoo_unique_by_warehouse"][warehouse],
-        "" if products[0]["odoo_tonnes"] is None else int(rounded_odoo_tonnes(sum((r["odoo_tonnes"] for r in products), Decimal("0"))).replace(",", "")),
+            warehouse, "SUBTOTAL", *(rounded_tonnes(subtotal[key]) for key in BUCKETS),
+            rounded_tonnes(subtotal["tonnes"]),
+            "" if odoo_by_wh is None else odoo_by_wh[warehouse],
+            "" if products[0]["odoo_tonnes"] is None else rounded_tonnes(
+                sum((r["odoo_tonnes"] for r in products), Decimal("0"))),
         ])
     summary_rows.append([
-        "TOTAL GENERAL", "", *(int(report["totals"][key]) for key in BUCKETS),
-        int(report["sacks"]), rounded_tonnes(report["sacks"]),
+        "TOTAL GENERAL", "", *(rounded_tonnes(report["totals"][key]) for key in BUCKETS),
+        rounded_tonnes(report["tonnes"]),
         "" if report["odoo_unique_total"] is None else report["odoo_unique_total"],
-        "" if report["odoo_tonnes_total"] is None else int(rounded_odoo_tonnes(report["odoo_tonnes_total"]).replace(",", "")),
+        "" if report["odoo_tonnes_total"] is None else rounded_tonnes(report["odoo_tonnes_total"]),
     ])
     return summary_rows
 
 
 def _report_html(report: dict[str, object]) -> str:
-    """Semáforo en sacos, toneladas redondeadas y columnas Odoo reservadas.
-
-    Mantiene la tabla en pantallas grandes y ofrece tarjetas para smartphones.
-    Nunca presenta capturas como inventario neto ni simula pedidos.
-    """
+    """Tabla en toneladas: agrupada por bodega y con subtotales + Odoo."""
     headers = (
         '<th scope="col">BODEGA</th><th scope="col">PRODUCTO</th>'
-        '<th scope="col" class="th-verde">VERDE<br><span>0–10 días</span></th>'
-        '<th scope="col" class="th-amarillo">AMARILLO<br><span>11–15 días</span></th>'
-        '<th scope="col" class="th-naranja">NARANJA<br><span>16–20 días</span></th>'
-        '<th scope="col" class="th-rojo">ROJO<br><span>21+ días</span></th>'
-        '<th scope="col">TOTAL<br><span>(SACOS)</span></th>'
+        '<th scope="col" class="th-verde">VERDE<br><span>0–10 días · TON</span></th>'
+        '<th scope="col" class="th-amarillo">AMARILLO<br><span>11–15 días · TON</span></th>'
+        '<th scope="col" class="th-naranja">NARANJA<br><span>16–20 días · TON</span></th>'
+        '<th scope="col" class="th-rojo">ROJO<br><span>21+ días · TON</span></th>'
         '<th scope="col">TOTAL<br><span>(TON)</span></th>'
         '<th scope="col" class="th-odoo th-odoo-start">PEDIDOS</th>'
         '<th scope="col" class="th-odoo">PEDIDOS<br><span>(TON)</span></th>'
     )
-    # Cada bodega comparte una celda vertical, incluidos sus subtotales.
-    grouped = _warehouse_groups(report["rows"])
-
     body: list[str] = []
     cards: list[str] = []
-    for warehouse, warehouse_products in grouped.items():
+    for warehouse, products in _warehouse_groups(report["rows"]).items():
         depot = e(warehouse)
-        subtotal = _warehouse_subtotal(warehouse_products)
-        subtotal_sacks = subtotal["sacks"]
-        subtotal_tonnes = rounded_tonnes(subtotal_sacks)
+        subtotal = _warehouse_subtotal(products)
         body.append(f'<tbody class="inv-warehouse-group" aria-label="Bodega {depot}">')
-        mobile_cards: list[str] = []
-        for index, row in enumerate(warehouse_products):
-            total_sacks = int(row["sacks"])
-            total_tonnes = rounded_tonnes(total_sacks)
-            bands = [f'{int(row[key]):,}' for key in BUCKETS]
-            # Un único nombre de bodega, centrado horizontal y verticalmente.
-            # Cada tbody representa un grupo real, accesible con scope=rowgroup.
-            body.append('<tr class="inv-group-start">' if index == 0 else '<tr>')
-            if index == 0:
-                body.append(
-                    f'<th scope="rowgroup" class="depot-cell" rowspan="{len(warehouse_products) + 1}">'
-                    f'<span>{depot}</span></th>'
-                )
+        mobile_cards = []
+        for i, row in enumerate(products):
+            bands = [f'{rounded_tonnes(row[key]):,}' for key in BUCKETS]
+            total = rounded_tonnes(row["tonnes"])
+            body.append('<tr class="inv-group-start">' if i == 0 else '<tr>')
+            if i == 0:
+                body.append(f'<th scope="rowgroup" class="depot-cell" rowspan="{len(products)+1}"><span>{depot}</span></th>')
             body.append(
                 f'<td class="product-cell">{product_chip(str(row["product"]))}</td>'
-                + ''.join(
-                    f'<td class="band-cell band-{key}">{value}</td>'
-                    for key, value in zip(BUCKETS, bands)
-                )
-                + f'<td class="total-cell">{total_sacks:,}</td>'
-                + f'<td class="tonnes-cell">{total_tonnes:,}</td>'
+                + ''.join(f'<td class="band-cell band-{key}">{value}</td>' for key, value in zip(BUCKETS, bands))
+                + f'<td class="tonnes-cell">{total:,}</td>'
                 + f'<td class="odoo-cell odoo-start">{_order_display(row["odoo_orders"], row["odoo_tonnes"])[0]}</td>'
                 + f'<td class="odoo-cell">{_order_display(row["odoo_orders"], row["odoo_tonnes"])[1]}</td></tr>'
             )
             band_cards = ''.join(
                 f'<div class="mobile-band band-{key}"><span>{label}</span><b>{value}</b></div>'
-                for key, label, value in zip(
-                    BUCKETS,
-                    ("Verde · 0–10", "Amarillo · 11–15", "Naranja · 16–20", "Rojo · 21+"),
-                    bands,
-                )
+                for key, label, value in zip(BUCKETS, ("Verde · 0–10", "Amarillo · 11–15", "Naranja · 16–20", "Rojo · 21+"), bands)
             )
             mobile_cards.append(
                 '<article class="inv-mobile-card">'
                 f'<div class="inv-card-head">{product_chip(str(row["product"]))}</div>'
-                f'<div class="inv-card-total">{total_sacks:,} <span>sacos · {total_tonnes:,} ton</span></div>'
+                f'<div class="inv-card-total">{total:,}<span>toneladas registradas</span></div>'
                 f'<div class="mobile-bands">{band_cards}</div>'
                 f'<div class="inv-card-orders"><span>PEDIDOS <b>{_order_display(row["odoo_orders"], row["odoo_tonnes"])[0]}</b></span>'
                 f'<span>PEDIDOS (TON) <b>{_order_display(row["odoo_orders"], row["odoo_tonnes"])[1]}</b></span></div>'
                 '</article>'
             )
-        # Odoo subtotal: operaciones únicas del almacén, no la suma duplicada de SKU.
-        orders = report["odoo_unique_by_warehouse"]
-        wh_orders = None if orders is None else int(orders.get(warehouse, 0))
-        wh_tonnes = None if not report["odoo_ok"] else sum((row["odoo_tonnes"] for row in warehouse_products), Decimal("0"))
-        subtotal_odoo_count, subtotal_odoo_ton = _order_display(wh_orders, wh_tonnes)
+        orders_by_warehouse = report["odoo_unique_by_warehouse"]
+        wh_orders = None if orders_by_warehouse is None else int(orders_by_warehouse.get(warehouse, 0))
+        wh_odoo_tonnes = None if not report["odoo_ok"] else sum((row["odoo_tonnes"] for row in products), Decimal("0"))
+        count, odoo_tonnes = _order_display(wh_orders, wh_odoo_tonnes)
         body.append(
-            '<tr class="inv-warehouse-subtotal-row">'
-            '<th scope="row" class="inv-subtotal-label">SUBTOTAL</th>'
-            + ''.join(f'<td>{subtotal[key]:,}</td>' for key in BUCKETS)
-            + f'<td>{subtotal_sacks:,}</td><td>{subtotal_tonnes:,}</td>'
-            + f'<td class="odoo-cell odoo-start">{subtotal_odoo_count}</td>'
-            + f'<td class="odoo-cell">{subtotal_odoo_ton}</td></tr>'
+            '<tr class="inv-warehouse-subtotal-row"><th scope="row" class="inv-subtotal-label">SUBTOTAL</th>'
+            + ''.join(f'<td>{rounded_tonnes(subtotal[key]):,}</td>' for key in BUCKETS)
+            + f'<td>{rounded_tonnes(subtotal["tonnes"]):,}</td>'
+            + f'<td class="odoo-cell odoo-start">{count}</td><td class="odoo-cell">{odoo_tonnes}</td></tr></tbody>'
         )
-        body.append('</tbody>')
-        # En móviles se resume también cada bodega tras sus productos.
         subtotal_bands = ''.join(
-            f'<div class="mobile-band band-{key}"><span>{label}</span><b>{subtotal[key]:,}</b></div>'
-            for key, label in zip(BUCKETS, ("Verde · 0–10", "Amarillo · 11–15", "Naranja · 16–20", "Rojo · 21+"))
+            f'<div class="mobile-band band-{key}"><span>{label}</span><b>{rounded_tonnes(subtotal[key]):,}</b></div>'
+            for key,label in zip(BUCKETS, ("Verde · 0–10", "Amarillo · 11–15", "Naranja · 16–20", "Rojo · 21+"))
         )
         mobile_cards.append(
-            '<div class="inv-mobile-warehouse-subtotal">'
-            '<div class="inv-mobile-warehouse-subtotal-head">'
-            '<strong>SUBTOTAL DE BODEGA</strong>'
-            f'<span>{subtotal_sacks:,} sacos · {subtotal_tonnes:,} ton</span></div>'
+            '<div class="inv-mobile-warehouse-subtotal"><div class="inv-mobile-warehouse-subtotal-head">'
+            f'<strong>SUBTOTAL DE BODEGA</strong><span>{rounded_tonnes(subtotal["tonnes"]):,} ton</span></div>'
             f'<div class="mobile-bands">{subtotal_bands}</div>'
-            f'<div class="inv-card-orders"><span>PEDIDOS <b>{subtotal_odoo_count}</b></span>'
-            f'<span>PEDIDOS (TON) <b>{subtotal_odoo_ton}</b></span></div>'
-            '</div>'
+            f'<div class="inv-card-orders"><span>PEDIDOS <b>{count}</b></span>'
+            f'<span>PEDIDOS (TON) <b>{odoo_tonnes}</b></span></div></div>'
         )
-        # En móviles el nombre de la bodega también aparece solo una vez.
-        cards.append(
-            f'<section class="inv-mobile-warehouse" aria-label="Bodega {depot}">'
-            f'<div class="inv-mobile-warehouse-title">{depot}</div>'
-            '<div class="inv-mobile-products">' + ''.join(mobile_cards) + '</div>'
-            '</section>'
-        )
-    totals = report["totals"]
-    assert isinstance(totals, dict)
-    overall_sacks = int(report["sacks"])
+        cards.append(f'<section class="inv-mobile-warehouse" aria-label="Bodega {depot}">'
+                     f'<div class="inv-mobile-warehouse-title">{depot}</div>'
+                     '<div class="inv-mobile-products">' + ''.join(mobile_cards) + '</div></section>')
+    overall = rounded_tonnes(report["tonnes"])
     footer = (
         '<tr class="inv-grand-total"><th scope="row" colspan="2">TOTAL GENERAL</th>'
-        + ''.join(f'<td>{int(totals[key]):,}</td>' for key in BUCKETS)
-        + f'<td>{overall_sacks:,}</td><td>{rounded_tonnes(overall_sacks):,}</td>'
+        + ''.join(f'<td>{rounded_tonnes(report["totals"][key]):,}</td>' for key in BUCKETS)
+        + f'<td>{overall:,}</td>'
         + f'<td class="odoo-cell odoo-start">{_order_display(report["odoo_unique_total"], report["odoo_tonnes_total"])[0]}</td>'
         + f'<td class="odoo-cell">{_order_display(report["odoo_unique_total"], report["odoo_tonnes_total"])[1]}</td></tr>'
     )
     return (
-        '<div class="inv-report-desktop"><div class="inv-report-scroll" role="region" aria-label="Semáforo de inventario" tabindex="0">'
-        '<table class="inv-report"><colgroup>'
-        '<col class="col-depot"><col class="col-product">'
-        '<col class="col-band" span="4"><col class="col-sacks"><col class="col-tonnes">'
-        '<col class="col-orders"><col class="col-orders-tonnes">'
-        '</colgroup><thead><tr>' + headers + '</tr></thead>'
-        + ''.join(body) + '<tbody class="inv-summary-group">' + footer + '</tbody></table></div></div>'
+        '<div class="inv-report-desktop"><div class="inv-report-scroll" role="region" aria-label="Semáforo de inventario en toneladas" tabindex="0">'
+        '<table class="inv-report"><colgroup><col class="col-depot"><col class="col-product">'
+        '<col class="col-band" span="4"><col class="col-tonnes">'
+        '<col class="col-orders"><col class="col-orders-tonnes"></colgroup><thead><tr>'
+        + headers + '</tr></thead>' + ''.join(body)
+        + '<tbody class="inv-summary-group">' + footer + '</tbody></table></div></div>'
         '<div class="inv-report-mobile">' + ''.join(cards)
-        + f'<div class="inv-mobile-total"><span>TOTAL GENERAL</span><strong>{overall_sacks:,} sacos · {rounded_tonnes(overall_sacks):,} ton</strong>'
+        + f'<div class="inv-mobile-total"><span>TOTAL GENERAL</span><strong>{overall:,} ton</strong>'
         + f'<small>Odoo: {_order_display(report["odoo_unique_total"], report["odoo_tonnes_total"])[0]} pedidos · '
         + f'{_order_display(report["odoo_unique_total"], report["odoo_tonnes_total"])[1]} ton</small></div></div>'
     )
 
 
-def supervisor_dashboard() -> None:
-    supervisor_welcome()
-    header, logout_col = st.columns([5, 1], vertical_alignment="center")
-    with header:
-        st.markdown('<div class="report-context">Supervisor · Rudy Anavisca · Acceso a las tres bodegas</div>', unsafe_allow_html=True)
-    with logout_col:
-        if st.button("⏻  Salir", type="primary", key="top_exit_supervisor", use_container_width=True):
-            logout()
+def supervisor_report(identity: dict[str, object]) -> None:
 
     st.markdown('<div class="report-title">Semáforo diario de capturas</div>', unsafe_allow_html=True)
     st.markdown(
@@ -606,13 +559,11 @@ def supervisor_dashboard() -> None:
         st.info("No hay capturas para la fecha seleccionada ni pedidos Odoo listos para la bodega.")
         return
 
-    # Estas cifras representan SACOS CAPTURADOS, no saldo disponible en bodega.
-    metric1, metric2, metric3 = st.columns(3, gap="medium")
-    ageing_sacks = sum(int(report["totals"][key]) for key in ("amarillo", "naranja", "rojo"))
+    metric1, metric2 = st.columns(2, gap="medium")
+    ageing_tonnes = sum((report["totals"][key] for key in ("amarillo", "naranja", "rojo")), Decimal("0"))
     for col, label, value, description in (
-        (metric1, "SACOS REGISTRADOS", f"{report['sacks']:,}", ""),
-        (metric2, "TONELADAS REGISTRADAS", f"{rounded_tonnes(report['sacks']):,}", ""),
-        (metric3, "MÁS DE 10 DÍAS", f"{ageing_sacks:,} sacos", "Antigüedad al día de registro"),
+        (metric1, "TONELADAS REGISTRADAS", f"{rounded_tonnes(report['tonnes']):,}", ""),
+        (metric2, "MÁS DE 10 DÍAS", f"{rounded_tonnes(ageing_tonnes):,} ton", "Antigüedad al día de registro"),
     ):
         with col:
             helper_html = f'<div class="dash-helper">{e(description)}</div>' if description else ''
@@ -622,9 +573,9 @@ def supervisor_dashboard() -> None:
     st.markdown(_report_html(report), unsafe_allow_html=True)
     st.caption(
         "Verde: 0–10 días · Amarillo: 11–15 · Naranja: 16–20 · Rojo: 21 o más días. "
-        "TOTAL (TON) = sacos × 0.0425, redondeado al entero más cercano. "
+        "Las capturas están expresadas en TON. Valores del tablero redondeados a enteros. "
         "PEDIDOS: operaciones PICK únicas actualmente en estado Listo, sin filtro de fecha; "
-        "PEDIDOS (TON): demanda en sacos × 0.0425 para SKU 10002/10004. "
+        "PEDIDOS (TON): demanda convertida para SKU 10002/10004. "
         "Los subtotales y el total general de Odoo cuentan operaciones únicas y redondean toneladas después de sumar, "
         "por lo que pueden diferir en ±1 ton de la suma de filas redondeadas. "
         "Capturas ARGOS no equivalen a existencias netas."
@@ -646,7 +597,7 @@ def supervisor_dashboard() -> None:
                 "Registro": format_timestamp(record["created_at"]),
                 "Bodega": record["warehouse"],
                 "Producto": record["product"],
-                "Sacos": record["sacks"],
+                "Toneladas": format_tonnes(record_tonnes(record)),
                 "Producción": format_date(production),
                 "Edad (días)": age_in_days(production, selected_day),
                 "Semáforo": age_band(production, selected_day).capitalize(),
@@ -668,8 +619,20 @@ def main() -> None:
         login()
         return
     sidebar(identity)
-    if identity.get("role") == "supervisor":
-        supervisor_dashboard()
+    if identity.get("role") in ("manager", "warehouse_supervisor"):
+        supervisor_welcome(identity)
+        header, logout_col = st.columns([5, 1], vertical_alignment="center")
+        with header:
+            st.markdown(f'<div class="report-context">Supervisión · {e(identity["employee"])} · '
+                        'Captura y consulta de las bodegas</div>', unsafe_allow_html=True)
+        with logout_col:
+            if st.button("⏻  Salir", type="primary", key="top_exit_supervisor", use_container_width=True):
+                logout()
+        tab_capture, tab_report = st.tabs(["Registrar toneladas", "Semáforo de inventario"])
+        with tab_capture:
+            record_form(identity)
+        with tab_report:
+            supervisor_report(identity)
         st.markdown('<div class="footer-mini">ARGOS · IMPORTACIONES · GUATEMALA</div>', unsafe_allow_html=True)
         return
     welcome(identity)
