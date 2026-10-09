@@ -70,3 +70,21 @@ def test_guatemala_day_window_not_utc_midnight():
     start,end=day_bounds_utc(date(2026,10,8))
     assert start == "2026-10-08T06:00:00+00:00"
     assert end == "2026-10-09T06:00:00+00:00"
+
+
+def test_pl_products_appear_separately_in_supervisor_summary():
+    records = [
+        sample(product="UNO", sacks=40),
+        sample(product="UNO PL", sacks=80),
+        sample(product="ECO PL", sacks=120),
+        sample(product="GU PL", sacks=20),
+    ]
+    result = build_daily_summary(records, date(2026, 10, 8))
+    by_product = {row["product"]: row for row in result["rows"]}
+    assert set(by_product) == {"UNO", "UNO PL", "ECO PL", "GU PL"}
+    assert by_product["UNO"]["sacks"] == 40
+    assert by_product["UNO PL"]["sacks"] == 80
+    assert by_product["ECO PL"]["sacks"] == 120
+    assert by_product["GU PL"]["sacks"] == 20
+    assert result["sacks"] == 260
+    assert result["weights_missing"] == ("UNO", "ECO PL", "UNO PL", "GU PL")
