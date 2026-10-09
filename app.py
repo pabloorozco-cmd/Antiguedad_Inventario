@@ -22,7 +22,7 @@ from src.config import (
 )
 from src.db import entries_on_date, get_secret, insert_entry, is_configured, recent_entries
 from src.domain import age_in_days, format_date, format_timestamp, now_guatemala, pallet_equivalent, today_guatemala, validate_entry
-from src.report import BUCKETS, age_band, build_daily_summary, configured_weights
+from src.report import BUCKETS, age_band, build_daily_summary, rounded_tonnes
 from src.style import apply_style
 
 logging.basicConfig(level=logging.INFO)
@@ -343,51 +343,68 @@ def _csv_text(rows: list[list[object]]) -> str:
 
 
 def _report_html(report: dict[str, object]) -> str:
-    """Tabla panorámica para desktop/TV y tarjetas apiladas para teléfonos."""
-    unit = str(report["unit"])
+    """Semáforo en sacos, toneladas redondeadas y columnas Odoo reservadas.
+
+    Mantiene la tabla en pantallas grandes y ofrece tarjetas para smartphones.
+    Nunca presenta capturas como inventario neto ni simula pedidos.
+    """
     headers = (
-        '<th>BODEGA</th><th>PRODUCTO</th>'
-        '<th class="th-verde">VERDE<br><span>0–10 días</span></th>'
-        '<th class="th-amarillo">AMARILLO<br><span>11–15 días</span></th>'
-        '<th class="th-naranja">NARANJA<br><span>16–20 días</span></th>'
-        '<th class="th-rojo">ROJO<br><span>21+ días</span></th>'
-        f'<th>TOTAL ({e(unit.upper())})</th><th>CAPTURAS</th>'
+        '<th scope="col">BODEGA</th><th scope="col">PRODUCTO</th>'
+        '<th scope="col" class="th-verde">VERDE<br><span>0–10 días</span></th>'
+        '<th scope="col" class="th-amarillo">AMARILLO<br><span>11–15 días</span></th>'
+        '<th scope="col" class="th-naranja">NARANJA<br><span>16–20 días</span></th>'
+        '<th scope="col" class="th-rojo">ROJO<br><span>21+ días</span></th>'
+        '<th scope="col">TOTAL<br><span>(SACOS)</span></th>'
+        '<th scope="col">TOTAL<br><span>(TON)</span></th>'
+        '<th scope="col">PEDIDOS</th>'
+        '<th scope="col">PEDIDOS<br><span>(TON)</span></th>'
     )
-    body = []
-    cards = []
+    body: list[str] = []
+    cards: list[str] = []
     for row in report["rows"]:
         assert isinstance(row, dict)
         depot, product = e(row["warehouse"]), e(row["product"])
-        vals = [_quantity(row[key], unit) for key in BUCKETS]
+        total_sacks = int(row["sacks"])
+        total_tonnes = rounded_tonnes(total_sacks)
+        bands = [f'{int(row[key]):,}' for key in BUCKETS]
         body.append(
             '<tr>' + f'<td class="depot-cell">{depot}</td><td>{product_chip(str(row["product"]))}</td>'
-            + ''.join(f'<td class="band-cell band-{key}">{v}</td>' for key, v in zip(BUCKETS, vals))
-            + f'<td class="total-cell">{_quantity(row["total"], unit)}</td>'
-            + f'<td class="count-cell">{int(row["entries"]):,}</td></tr>'
+            + ''.join(f'<td class="band-cell band-{key}">{value}</td>' for key, value in zip(BUCKETS, bands))
+            + f'<td class="total-cell">{total_sacks:,}</td>'
+            + f'<td class="tonnes-cell">{total_tonnes:,}</td>'
+            + '<td class="odoo-cell"></td><td class="odoo-cell"></td></tr>'
         )
-        parts = ''.join(
-            f'<div class="mobile-band band-{key}"><span>{label}</span><b>{v}</b></div>'
-            for key, label, v in zip(BUCKETS, ("Verde · 0–10", "Amarillo · 11–15", "Naranja · 16–20", "Rojo · 21+"), vals)
+        band_cards = ''.join(
+            f'<div class="mobile-band band-{key}"><span>{label}</span><b>{value}</b></div>'
+            for key, label, value in zip(BUCKETS, ("Verde · 0–10", "Amarillo · 11–15", "Naranja · 16–20", "Rojo · 21+"), bands)
         )
         cards.append(
             '<article class="inv-mobile-card">'
             f'<div class="inv-card-head"><b>{depot}</b>{product_chip(str(row["product"]))}</div>'
-            f'<div class="inv-card-total">{_quantity(row["total"], unit)} <span>{e(unit)} · {int(row["entries"])} capturas</span></div>'
-            f'<div class="mobile-bands">{parts}</div></article>'
+            f'<div class="inv-card-total">{total_sacks:,} <span>sacos · {total_tonnes:,} ton</span></div>'
+            f'<div class="mobile-bands">{band_cards}</div>'
+            '<div class="inv-card-orders"><span>PEDIDOS <b></b></span><span>PEDIDOS (TON) <b></b></span></div>'
+            '</article>'
         )
     totals = report["totals"]
     assert isinstance(totals, dict)
+    overall_sacks = int(report["sacks"])
     footer = (
-        '<tr class="inv-grand-total"><th colspan="2">TOTAL GENERAL</th>'
-        + ''.join(f'<td>{_quantity(totals[key], unit)}</td>' for key in BUCKETS)
-        + f'<td>{_quantity(totals["total"], unit)}</td><td>{report["count"]}</td></tr>'
+        '<tr class="inv-grand-total"><th scope="row" colspan="2">TOTAL GENERAL</th>'
+        + ''.join(f'<td>{int(totals[key]):,}</td>' for key in BUCKETS)
+        + f'<td>{overall_sacks:,}</td><td>{rounded_tonnes(overall_sacks):,}</td>'
+        + '<td></td><td></td></tr>'
     )
     return (
-        '<div class="inv-report-desktop"><div class="inv-report-scroll">'
-        '<table class="inv-report"><thead><tr>' + headers + '</tr></thead><tbody>'
+        '<div class="inv-report-desktop"><div class="inv-report-scroll" role="region" aria-label="Semáforo de inventario" tabindex="0">'
+        '<table class="inv-report"><colgroup>'
+        '<col class="col-depot"><col class="col-product">'
+        '<col class="col-band" span="4"><col class="col-sacks"><col class="col-tonnes">'
+        '<col class="col-orders"><col class="col-orders-tonnes">'
+        '</colgroup><thead><tr>' + headers + '</tr></thead><tbody>'
         + ''.join(body) + footer + '</tbody></table></div></div>'
         '<div class="inv-report-mobile">' + ''.join(cards)
-        + f'<div class="inv-mobile-total"><span>TOTAL GENERAL</span><strong>{_quantity(totals["total"], unit)} {e(unit)}</strong></div></div>'
+        + f'<div class="inv-mobile-total"><span>TOTAL GENERAL</span><strong>{overall_sacks:,} sacos · {rounded_tonnes(overall_sacks):,} ton</strong></div></div>'
     )
 
 
@@ -419,10 +436,9 @@ def supervisor_dashboard() -> None:
         st.warning("Configura Supabase para consultar capturas reales. No hay datos de demostración.")
         return
     try:
-        weights = configured_weights(get_secret("PRODUCT_WEIGHT_KG", {}))
         with st.spinner("Consultando capturas de Supabase…"):
             records = entries_on_date(selected_day)
-        report = build_daily_summary(records, selected_day, warehouse=selected_depot, weights_kg=weights)
+        report = build_daily_summary(records, selected_day, warehouse=selected_depot)
     except ValueError as exc:
         st.error(f"Configuración incorrecta: {exc}")
         return
@@ -437,31 +453,41 @@ def supervisor_dashboard() -> None:
         st.info("No hay capturas para la fecha y bodega seleccionadas.")
         return
 
-    unit = str(report["unit"])
+    # Estas cifras representan SACOS CAPTURADOS, no saldo disponible en bodega.
     metric1, metric2, metric3 = st.columns(3, gap="medium")
+    ageing_sacks = sum(int(report["totals"][key]) for key in ("amarillo", "naranja", "rojo"))
     for col, label, value, description in (
-        (metric1, "CAPTURAS DEL DÍA", str(report["count"]), "Registros ingresados"),
-        (metric2, "SACOS REGISTRADOS", f"{report['sacks']:,}", "Volumen capturado (no saldo)"),
-        (metric3, "MÁS DE 10 DÍAS", _quantity(sum((report["totals"][key] for key in ("amarillo", "naranja", "rojo")), Decimal(0)), unit) + f" {unit}", "Al momento de la captura"),
+        (metric1, "SACOS REGISTRADOS", f"{report['sacks']:,}", "Ingresos capturados (no saldo neto)"),
+        (metric2, "TONELADAS REGISTRADAS", f"{rounded_tonnes(report['sacks']):,}", "Equivalencia: 0.0425 ton/saco"),
+        (metric3, "MÁS DE 10 DÍAS", f"{ageing_sacks:,} sacos", "Antigüedad al día de registro"),
     ):
         with col:
             st.markdown(f'<div class="dash-card"><div class="dash-label">{e(label)}</div>'
                         f'<div class="dash-value">{e(value)}</div><div class="dash-helper">{e(description)}</div></div>', unsafe_allow_html=True)
     st.write("")
     st.markdown(_report_html(report), unsafe_allow_html=True)
-    if report["weights_missing"]:
-        st.info(
-            "El semáforo se presenta en **sacos**. Para mostrarlo en toneladas, configura el peso "
-            "kg/saco de cada producto en PRODUCT_WEIGHT_KG (Streamlit Secrets). "
-            "Faltan: " + ", ".join(report["weights_missing"]) + "."
-        )
-    st.caption("Verde: 0–10 días · Amarillo: 11–15 · Naranja: 16–20 · Rojo: 21 o más días. No se muestran pedidos: la base aún no tiene movimientos de salida.")
+    st.caption(
+        "Verde: 0–10 días · Amarillo: 11–15 · Naranja: 16–20 · Rojo: 21 o más días. "
+        "TOTAL (TON) = sacos × 0.0425, redondeado al entero más cercano. "
+        "PEDIDOS y PEDIDOS (TON) están pendientes de integración con Odoo. "
+        "Son registros capturados, no existencias netas."
+    )
 
-    summary_rows = [["Bodega", "Producto", "Verde", "Amarillo", "Naranja", "Rojo", f"Total ({unit})", "Capturas"]]
+    summary_rows = [["Bodega", "Producto", "Verde", "Amarillo", "Naranja", "Rojo", "Total (sacos)", "Total (ton)", "Pedidos", "Pedidos (ton)"]]
     for row in report["rows"]:
-        summary_rows.append([row["warehouse"], row["product"], *(_quantity(row[key], unit) for key in BUCKETS), _quantity(row["total"], unit), row["entries"]])
-    summary_rows.append(["TOTAL GENERAL", "", *(_quantity(report["totals"][key], unit) for key in BUCKETS), _quantity(report["totals"]["total"], unit), report["count"]])
-    st.download_button("Descargar semáforo (CSV)", data=_csv_text(summary_rows), file_name=f"semaforo_capturas_{selected_day.isoformat()}.csv", mime="text/csv", use_container_width=True)
+        summary_rows.append([
+            row["warehouse"], row["product"], *(int(row[key]) for key in BUCKETS),
+            int(row["sacks"]), rounded_tonnes(row["sacks"]), "", "",
+        ])
+    summary_rows.append([
+        "TOTAL GENERAL", "", *(int(report["totals"][key]) for key in BUCKETS),
+        int(report["sacks"]), rounded_tonnes(report["sacks"]), "", "",
+    ])
+    st.download_button(
+        "Descargar semáforo (CSV)", data=_csv_text(summary_rows),
+        file_name=f"semaforo_capturas_{selected_day.isoformat()}.csv", mime="text/csv",
+        use_container_width=True,
+    )
 
     with st.expander(f"Ver detalle de {report['count']} registros", expanded=False):
         st.caption("Hora de Guatemala · Incluye nombre del operador y registros de Apoyo")
