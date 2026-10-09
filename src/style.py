@@ -184,6 +184,64 @@ p { color:#344360; }
   .inv-mobile-card { padding:12px; }
   .mobile-band { padding:8px; }
 }
+
+/* Supervisor: tabla de diez columnas legible en monitores, televisores y tablets. */
+.inv-report-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:thin; }
+.inv-report {
+  table-layout:fixed;
+  width:100%; min-width:1210px;
+  font-size:clamp(15px,1vw,20px);
+  font-variant-numeric:tabular-nums;
+  line-height:1.32;
+}
+.inv-report col.col-depot { width:12%; }
+.inv-report col.col-product { width:10%; }
+.inv-report col.col-band { width:9%; }
+.inv-report col.col-sacks { width:11%; }
+.inv-report col.col-tonnes { width:10%; }
+.inv-report col.col-orders { width:10%; }
+.inv-report col.col-orders-tonnes { width:11%; }
+.inv-report th,.inv-report td {
+  padding:clamp(13px,.95vw,20px) clamp(7px,.6vw,13px);
+  vertical-align:middle;
+  overflow-wrap:break-word;
+}
+.inv-report thead th {
+  font-size:clamp(14px,.95vw,19px);
+  white-space:normal;
+  line-height:1.3;
+  letter-spacing:-.01em;
+}
+.inv-report thead th span { font-size:clamp(12px,.80vw,16px); white-space:normal; }
+.inv-report tbody td { font-weight:650; }
+.inv-report tbody td.depot-cell { font-weight:800; }
+.inv-report .product-chip { font-size:clamp(12px,.83vw,16px); padding:7px 11px; max-width:100%; }
+.inv-report td.total-cell,.inv-report td.tonnes-cell { font-weight:850; }
+.inv-report td.odoo-cell { background:#F8FAFC; }
+.inv-report tr.inv-grand-total > * { font-size:clamp(14px,.96vw,20px); }
+.inv-report tr.inv-grand-total th { white-space:normal; }
+.inv-card-orders {
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px;
+  border-top:1px solid #E6EBF1; margin-top:13px; padding-top:12px;
+  color:#64748B; font-size:12px; font-weight:800;
+}
+.inv-card-orders > span { min-height:35px; }
+.inv-card-orders b { display:block; min-height:15px; }
+@media(min-width:1800px) {
+  .inv-report { font-size:clamp(18px,1.02vw,23px); }
+  .inv-report thead th { font-size:clamp(17px,1vw,22px); }
+  .inv-report thead th span { font-size:clamp(15px,.82vw,19px); }
+}
+@media (max-width:1290px) and (min-width:851px) {
+  .inv-report { min-width:1210px; }
+}
+@media(max-width:850px) {
+  .inv-card-total span { font-size:13px; }
+  .inv-card-head { font-size:16px; }
+  .mobile-band { font-size:13px; }
+  .mobile-band b { font-size:18px; }
+}
+
 </style>
 """
 
