@@ -510,6 +510,21 @@ p { color:#344360; }
   .inv-card-orders { font-size:clamp(14px,2.7vw,17px); }
 }
 
+/* Fuente Odoo: vigencia visible, sin competir con los KPI ARGOS. */
+.odoo-live-context {
+  display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;
+  gap:9px 18px; background:#F9EDF5; border:1px solid #E9CBDF;
+  border-left:5px solid #A24689; border-radius:12px;
+  padding:14px 19px; margin:10px 0 10px;
+  font-size:clamp(14px,.95vw,18px); color:#693252;
+}
+.odoo-live-context strong { color:#803467; font-weight:900; letter-spacing:.045em; }
+.odoo-live-context span { font-weight:600; }
+.inv-mobile-total small { flex:0 0 100%; font-weight:700; font-size:clamp(13px,3vw,16px); color:#E3C4D9; }
+@media(max-width:640px) {
+  .odoo-live-context { padding:13px 14px; font-size:14px; align-items:flex-start; }
+}
+
 </style>
 """
 
