@@ -69,7 +69,7 @@ def test_supabase_zero_rows_still_displays_live_odoo():
           "unmapped":[],"as_of":"08/10/2026 20:00:00"}
     report=combine_report(base,snap)
     assert len(report["rows"])==1
-    assert report["rows"][0]["sacks"] == 0
+    assert report["rows"][0]["tonnes"] == 0
     assert report["rows"][0]["odoo_orders"] == 7
     assert report["odoo_unique_total"] == 7
     assert rounded_odoo_tonnes(report["odoo_tonnes_total"]) == "10"
