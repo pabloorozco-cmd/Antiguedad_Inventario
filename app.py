@@ -17,11 +17,11 @@ import streamlit as st
 
 from src.auth import verify_pin
 from src.config import (
-    APP_TITLE, MAX_TONNES_PER_ENTRY, PRODUCTS, PRODUCT_STYLES, WAREHOUSE_SUPERVISORS,
+    APP_TITLE, MAX_SACKS_PER_ENTRY, PRODUCTS, PRODUCT_STYLES, WAREHOUSE_SUPERVISORS,
     SUPERVISOR_ACCESS, SUPERVISOR_NAME, WAREHOUSE_USERS,
 )
-from src.db import entries_on_date, get_secret, insert_entry, is_configured, recent_entries
-from src.domain import age_in_days, format_date, format_timestamp, today_guatemala, validate_tonnes_entry
+from src.db import entries_on_date, get_secret, insert_entry, is_configured, recent_entries, safe_db_error
+from src.domain import age_in_days, format_date, format_timestamp, today_guatemala, validate_sacks_entry
 from src.report import BUCKETS, age_band, build_daily_summary, rounded_tonnes, format_tonnes, record_tonnes
 from src.odoo_integration import combine_report, fetch_live_odoo, rounded_odoo_tonnes
 from src.style import apply_style
@@ -102,7 +102,7 @@ def login() -> None:
             return
         is_warehouse_supervisor = (not is_supervisor and employee in WAREHOUSE_SUPERVISORS)
         if is_warehouse_supervisor:
-            st.caption("Acceso de supervisión: registro de toneladas y semáforo, sin PIN.")
+            st.caption("Acceso de supervisión: registro y semáforo, sin PIN.")
         pin = ""
         if is_supervisor:
             pin = st.text_input("PIN de supervisor *", type="password", key="login_supervisor_pin")
@@ -193,7 +193,7 @@ def supervisor_welcome(identity: dict[str, object]) -> None:
         '<div class="welcome supervisor-welcome">'
         '<small>PORTAL DE SUPERVISIÓN · IMPORTACIONES</small>'
         f'<h2>Hola, {e(first)}.</h2>'
-        '<p>Registra toneladas de producción, consulta las capturas del día y '
+        '<p>Registra sacos de producción, consulta las toneladas del día y '
         'revisa los pedidos actualmente listos en Odoo.</p>'
         '</div>', unsafe_allow_html=True,
     )
@@ -210,7 +210,7 @@ def product_chip(product: str) -> str:
 def record_form(identity: dict[str, object]) -> None:
     st.markdown('<div class="section-title">Nuevo registro</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="section-sub">Registra la cantidad en toneladas y la fecha de producción. '
+        '<div class="section-sub">Registra la cantidad de sacos y la fecha de producción. '
         'La bodega, el responsable y la hora se guardan automáticamente.</div>',
         unsafe_allow_html=True,
     )
@@ -223,11 +223,10 @@ def record_form(identity: dict[str, object]) -> None:
         left, right = st.columns(2, gap="large")
         with left:
             product = st.selectbox("Producto *", options=PRODUCTS, index=0)
-            tonnes = st.number_input(
-                "Cantidad (TON) *", min_value=0.0001,
-                max_value=float(MAX_TONNES_PER_ENTRY),
-                value=1.7000, step=0.0425, format="%.4f",
-                help="Ingresa las toneladas con hasta cuatro decimales.",
+            sacks = st.number_input(
+                "Cantidad de sacos *", min_value=1, max_value=MAX_SACKS_PER_ENTRY,
+                value=40, step=1, format="%d",
+                help="Ingresa la cantidad de sacos. La app convierte 1 saco = 0.0425 toneladas.",
             )
         with right:
             production = st.date_input(
@@ -237,7 +236,7 @@ def record_form(identity: dict[str, object]) -> None:
             )
         st.markdown(
             '<div class="form-note"><div class="note-icon">i</div>'
-            '<div><b>Registro en toneladas.</b> Valores históricos normalizados a toneladas. '
+            '<div><b>Captura en sacos.</b> Conversión automática a TON (sacos × 0.0425). '
             'Fecha y hora tomadas del servidor en horario de Guatemala.</div></div>',
             unsafe_allow_html=True,
         )
@@ -246,12 +245,12 @@ def record_form(identity: dict[str, object]) -> None:
     if not submitted:
         return
     try:
-        ton_value = validate_tonnes_entry(
+        ton_value = validate_sacks_entry(
             employee=str(identity["employee"]),
             home_warehouse=active_warehouse if is_manager else str(identity["home"]),
             active_warehouse=active_warehouse,
             support=False if is_manager else bool(identity["support"]),
-            product=product, tonnes=Decimal(str(tonnes)).quantize(Decimal("0.0001")),
+            product=product, sacks=sacks,
             production=production, manager=is_manager,
         )
     except ValueError as exc:
@@ -262,22 +261,21 @@ def record_form(identity: dict[str, object]) -> None:
         return
     request_id = st.session_state.setdefault("pending_request_id", str(uuid.uuid4()))
     try:
-        with st.spinner("Guardando toneladas en Supabase…"):
+        with st.spinner("Guardando registro en Supabase…"):
             row = insert_entry(
                 request_id=request_id, employee=str(identity["employee"]),
                 home_warehouse=active_warehouse if is_manager else str(identity["home"]),
                 warehouse=active_warehouse, is_support=False if is_manager else bool(identity["support"]),
-                product=product, tonnes=ton_value, production_date=production,
+                product=product, sacks=sacks, tonnes=ton_value, production_date=production,
             )
-    except Exception:
-        LOGGER.exception("Error al registrar toneladas en Supabase")
-        st.error("No se pudo guardar. Verifica que hayas ejecutado sql/upgrade_tonnes.sql en Supabase. "
-                 "Si ya ejecutaste la migración, revisa los Logs de Streamlit.")
+    except Exception as exc:
+        LOGGER.exception("Error al registrar captura en Supabase")
+        st.error(f"No se pudo guardar en Supabase. {safe_db_error(exc)}")
         return
     st.session_state.pending_request_id = str(uuid.uuid4())
     stamp = format_timestamp(row["created_at"])
     st.markdown(
-        f'<div class="status-ok">✓ Registro guardado · {e(product)} · {format_tonnes(ton_value)} ton · '
+        f'<div class="status-ok">✓ Registro guardado · {e(product)} · {sacks:,} sacos · {format_tonnes(ton_value)} ton · '
         f'Producción {format_date(production)} · {stamp}</div>', unsafe_allow_html=True,
     )
     st.toast("Registro guardado correctamente", icon="✅")
@@ -530,9 +528,9 @@ def supervisor_report(identity: dict[str, object]) -> None:
     except ValueError as exc:
         st.error(f"Configuración incorrecta: {exc}")
         return
-    except Exception:
+    except Exception as exc:
         LOGGER.exception("Error consultando los registros del supervisor")
-        st.error("No fue posible consultar Supabase. Revisa Secrets y la conexión.")
+        st.error(f"No fue posible consultar Supabase. {safe_db_error(exc)}")
         return
 
     if report["anomalous"]:
@@ -628,7 +626,7 @@ def main() -> None:
         with logout_col:
             if st.button("⏻  Salir", type="primary", key="top_exit_supervisor", use_container_width=True):
                 logout()
-        tab_capture, tab_report = st.tabs(["Registrar toneladas", "Semáforo de inventario"])
+        tab_capture, tab_report = st.tabs(["Registrar sacos", "Semáforo de inventario"])
         with tab_capture:
             record_form(identity)
         with tab_report:
