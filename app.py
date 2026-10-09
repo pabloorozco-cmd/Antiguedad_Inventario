@@ -70,7 +70,7 @@ def login() -> None:
               <div class="hero-kicker">OPERACIÓN · GUATEMALA</div>
               <div class="hero-title">Control más claro.<br><em>Inventario más inteligente.</em></div>
               <div class="hero-sub">Una experiencia simple para capturar la producción del cemento, mantener la trazabilidad del registro y conectar a quienes operan nuestras bodegas.</div>
-              <div class="hero-footer"><span class="hero-stat">03 Bodegas</span><span class="hero-stat">04 Productos</span><span class="hero-stat">Registro en tiempo real</span></div>
+              <div class="hero-footer"><span class="hero-stat">03 Bodegas</span><span class="hero-stat">07 Productos</span><span class="hero-stat">Registro en tiempo real</span></div>
             </div>
             """,
             unsafe_allow_html=True,
