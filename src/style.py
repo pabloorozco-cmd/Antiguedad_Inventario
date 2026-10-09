@@ -378,6 +378,56 @@ p { color:#344360; }
   font-variant-numeric:tabular-nums;
 }
 
+
+/* =========================================
+   ODOO · diferenciacion visual de origen ERP
+   Color tomado de la referencia: #A24689.
+   No modifica datos ni reglas del semaforo.
+   ========================================= */
+.inv-report thead th.th-odoo {
+  background:#A24689!important;
+  color:#FFFFFF!important;
+  font-weight:900;
+  border-right:1px solid rgba(255,255,255,.26);
+}
+.inv-report thead th.th-odoo span { color:#FFFFFF!important; }
+.inv-report thead th.th-odoo-start,
+.inv-report tbody td.odoo-start {
+  border-left:3px solid #A24689!important;
+}
+.inv-report tbody td.odoo-cell {
+  background:#F9EDF5!important;
+  color:#672450!important;
+  border-right:1px solid #EBD2E2;
+}
+/* Filas SUBTOTAL: las columnas Odoo siguen vacias, pero diferenciadas. */
+.inv-report tbody tr.inv-warehouse-subtotal-row > td.odoo-cell {
+  background:#EFD9E8!important;
+  color:#672450!important;
+}
+/* TOTAL GENERAL: la franja Odoo conserva su identidad en morado. */
+.inv-report tbody tr.inv-grand-total > td.odoo-cell {
+  background:#803467!important;
+  color:#FFFFFF!important;
+  border-color:#AC6A95!important;
+}
+.inv-report tbody tr.inv-grand-total > td.odoo-start {
+  border-left:3px solid #D89DC4!important;
+}
+/* Moviles: seccion Odoo con identidad visual, sin inventar pedidos. */
+.inv-card-orders {
+  background:#F9EDF5;
+  border:1px solid #E9CBDF;
+  border-left:4px solid #A24689;
+  border-radius:11px;
+  padding:12px;
+  color:#803467;
+  font-size:clamp(12px,1vw,14px);
+  line-height:1.35;
+}
+.inv-card-orders > span { min-width:0; overflow-wrap:anywhere; }
+.inv-card-orders b { min-height:15px; }
+
 </style>
 """
 
