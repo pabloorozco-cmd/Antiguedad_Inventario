@@ -1,16 +1,14 @@
-"""Acceso a Supabase: solamente del lado servidor de Streamlit."""
-
+"""Supabase: captura decimal de toneladas, histórico conservado."""
 from __future__ import annotations
-
 import logging
 import uuid
 from datetime import date
-
-from src.report import day_bounds_utc
+from decimal import Decimal
 from typing import Any
 
 import streamlit as st
 from supabase import Client, create_client
+from src.report import day_bounds_utc
 
 LOGGER = logging.getLogger(__name__)
 TABLE = "inventory_records"
@@ -33,34 +31,19 @@ def _cached_client(url: str, api_key: str) -> Client:
 
 
 def get_client() -> Client:
-    url = get_secret("SUPABASE_URL")
-    api_key = get_secret("SUPABASE_SERVICE_ROLE_KEY")
+    url, api_key = get_secret("SUPABASE_URL"), get_secret("SUPABASE_SERVICE_ROLE_KEY")
     if not url or not api_key:
-        raise RuntimeError("Falta configurar Supabase en los secretos de Streamlit.")
+        raise RuntimeError("Falta configurar Supabase en Secrets de Streamlit.")
     return _cached_client(str(url), str(api_key))
 
 
-def insert_entry(
-    *,
-    request_id: str,
-    employee: str,
-    home_warehouse: str,
-    warehouse: str,
-    is_support: bool,
-    product: str,
-    sacks: int,
-    production_date: date,
-) -> dict[str, Any]:
-    """Inserta una sola vez. request_id evita duplicados por reintentos."""
+def insert_entry(*, request_id: str, employee: str, home_warehouse: str, warehouse: str,
+                 is_support: bool, product: str, tonnes: Decimal, production_date: date) -> dict[str, Any]:
     payload = {
-        "request_id": str(uuid.UUID(request_id)),
-        "employee_name": employee,
-        "home_warehouse": home_warehouse,
-        "warehouse": warehouse,
-        "is_support": is_support,
-        "product": product,
-        "sacks": sacks,
-        "production_date": production_date.isoformat(),
+        "request_id": str(uuid.UUID(request_id)), "employee_name": employee,
+        "home_warehouse": home_warehouse, "warehouse": warehouse,
+        "is_support": is_support, "product": product,
+        "tonnes": str(tonnes), "production_date": production_date.isoformat(),
     }
     client = get_client()
     try:
@@ -69,49 +52,34 @@ def insert_entry(
             raise RuntimeError("Supabase no devolvió el registro insertado.")
         return dict(result.data[0])
     except Exception:
-        # Si se guardó pero la respuesta se perdió, un reintento con el mismo
-        # request_id recupera el registro, sin insertarlo dos veces.
         try:
             previous = client.table(TABLE).select("*").eq("request_id", payload["request_id"]).limit(1).execute()
             if previous.data:
                 return dict(previous.data[0])
         except Exception:
-            LOGGER.exception("No se pudo recuperar una inserción potencialmente duplicada")
+            LOGGER.exception("No se pudo recuperar una inserción posiblemente duplicada")
         raise
 
 
 def recent_entries(warehouse: str, limit: int = 12) -> list[dict[str, Any]]:
-    result = (
-        get_client()
-        .table(TABLE)
-        .select("id,created_at,employee_name,warehouse,is_support,product,sacks,production_date")
-        .eq("warehouse", warehouse)
-        .order("created_at", desc=True)
-        .limit(limit)
-        .execute()
-    )
+    result = (get_client().table(TABLE)
+              .select("id,created_at,employee_name,warehouse,is_support,product,tonnes,production_date")
+              .eq("warehouse", warehouse).order("created_at", desc=True).limit(limit).execute())
     return list(result.data or [])
 
 
 def entries_on_date(selected_date: date, *, page_size: int = 500) -> list[dict[str, Any]]:
-    """Obtiene TODAS las capturas del día local, sin el límite implícito de 1.000 filas."""
     start, end = day_bounds_utc(selected_date)
-    result: list[dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     offset = 0
     while True:
-        response = (
-            get_client()
-            .table(TABLE)
-            .select("id,created_at,employee_name,home_warehouse,warehouse,is_support,product,sacks,production_date")
-            .gte("created_at", start)
-            .lt("created_at", end)
-            .order("created_at", desc=False)
-            .order("id", desc=False)
-            .range(offset, offset + page_size - 1)
-            .execute()
-        )
+        response = (get_client().table(TABLE)
+                    .select("id,created_at,employee_name,home_warehouse,warehouse,is_support,product,tonnes,production_date")
+                    .gte("created_at", start).lt("created_at", end)
+                    .order("created_at", desc=False).order("id", desc=False)
+                    .range(offset, offset + page_size - 1).execute())
         page = list(response.data or [])
-        result.extend(page)
+        records.extend(page)
         if len(page) < page_size:
-            return result
+            return records
         offset += page_size
