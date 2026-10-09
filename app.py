@@ -23,6 +23,7 @@ from src.config import (
 from src.db import entries_on_date, get_secret, insert_entry, is_configured, recent_entries
 from src.domain import age_in_days, format_date, format_timestamp, now_guatemala, pallet_equivalent, today_guatemala, validate_entry
 from src.report import BUCKETS, age_band, build_daily_summary, rounded_tonnes
+from src.odoo_integration import combine_report, fetch_live_odoo, rounded_odoo_tonnes
 from src.style import apply_style
 
 logging.basicConfig(level=logging.INFO)
@@ -359,6 +360,28 @@ def _warehouse_subtotal(rows: list[dict[str, object]]) -> dict[str, int]:
 
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _cached_odoo(url: str, database: str, username: str, api_key: str) -> dict:
+    """Odoo en el servidor; nunca expone las credenciales en la interfaz."""
+    return fetch_live_odoo(url, database, username, api_key)
+
+
+def _load_odoo_snapshot() -> tuple[dict | None, str | None]:
+    keys = ("ODOO_URL", "ODOO_DB", "ODOO_USERNAME", "ODOO_API_KEY")
+    values = [str(get_secret(k) or "").strip() for k in keys]
+    if not all(values):
+        return None, "Configura ODOO_URL, ODOO_DB, ODOO_USERNAME y ODOO_API_KEY en los Secrets de Streamlit."
+    try:
+        return _cached_odoo(*values), None
+    except Exception as exc:
+        LOGGER.warning("Consulta Odoo no disponible: %s", type(exc).__name__)
+        return None, "Odoo no está disponible desde Streamlit. Revisa credenciales, XML-RPC y conectividad del servidor. Los pedidos NO se mostrarán como cero."
+
+
+def _order_display(value: int | None, tonnes: Decimal | None) -> tuple[str, str]:
+    return ("" if value is None else f"{value:,}", rounded_odoo_tonnes(tonnes))
+
+
 def _summary_csv_rows(report: dict[str, object]) -> list[list[object]]:
     """Exporta productos y un subtotal por bodega, seguido del total general."""
     summary_rows: list[list[object]] = [[
@@ -369,16 +392,22 @@ def _summary_csv_rows(report: dict[str, object]) -> list[list[object]]:
         for row in products:
             summary_rows.append([
                 warehouse, row["product"], *(int(row[key]) for key in BUCKETS),
-                int(row["sacks"]), rounded_tonnes(row["sacks"]), "", "",
+                int(row["sacks"]), rounded_tonnes(row["sacks"]),
+                "" if row["odoo_orders"] is None else int(row["odoo_orders"]),
+                "" if row["odoo_tonnes"] is None else int(rounded_odoo_tonnes(row["odoo_tonnes"]).replace(",", "")),
             ])
         subtotal = _warehouse_subtotal(products)
         summary_rows.append([
             warehouse, "SUBTOTAL", *(subtotal[key] for key in BUCKETS),
-            subtotal["sacks"], rounded_tonnes(subtotal["sacks"]), "", "",
+            subtotal["sacks"], rounded_tonnes(subtotal["sacks"]),
+        "" if report["odoo_unique_by_warehouse"] is None else report["odoo_unique_by_warehouse"][warehouse],
+        "" if products[0]["odoo_tonnes"] is None else int(rounded_odoo_tonnes(sum((r["odoo_tonnes"] for r in products), Decimal("0"))).replace(",", "")),
         ])
     summary_rows.append([
         "TOTAL GENERAL", "", *(int(report["totals"][key]) for key in BUCKETS),
-        int(report["sacks"]), rounded_tonnes(report["sacks"]), "", "",
+        int(report["sacks"]), rounded_tonnes(report["sacks"]),
+        "" if report["odoo_unique_total"] is None else report["odoo_unique_total"],
+        "" if report["odoo_tonnes_total"] is None else int(rounded_odoo_tonnes(report["odoo_tonnes_total"]).replace(",", "")),
     ])
     return summary_rows
 
@@ -432,7 +461,8 @@ def _report_html(report: dict[str, object]) -> str:
                 )
                 + f'<td class="total-cell">{total_sacks:,}</td>'
                 + f'<td class="tonnes-cell">{total_tonnes:,}</td>'
-                + '<td class="odoo-cell odoo-start"></td><td class="odoo-cell"></td></tr>'
+                + f'<td class="odoo-cell odoo-start">{_order_display(row["odoo_orders"], row["odoo_tonnes"])[0]}</td>'
+                + f'<td class="odoo-cell">{_order_display(row["odoo_orders"], row["odoo_tonnes"])[1]}</td></tr>'
             )
             band_cards = ''.join(
                 f'<div class="mobile-band band-{key}"><span>{label}</span><b>{value}</b></div>'
@@ -447,17 +477,22 @@ def _report_html(report: dict[str, object]) -> str:
                 f'<div class="inv-card-head">{product_chip(str(row["product"]))}</div>'
                 f'<div class="inv-card-total">{total_sacks:,} <span>sacos · {total_tonnes:,} ton</span></div>'
                 f'<div class="mobile-bands">{band_cards}</div>'
-                '<div class="inv-card-orders"><span>PEDIDOS <b></b></span><span>PEDIDOS (TON) <b></b></span></div>'
+                f'<div class="inv-card-orders"><span>PEDIDOS <b>{_order_display(row["odoo_orders"], row["odoo_tonnes"])[0]}</b></span>'
+                f'<span>PEDIDOS (TON) <b>{_order_display(row["odoo_orders"], row["odoo_tonnes"])[1]}</b></span></div>'
                 '</article>'
             )
-        # Subtotal del grupo: BODEGA sigue siendo una celda única y centrada.
-        # Las columnas de Odoo se mantienen vacías hasta conectar el ERP.
+        # Odoo subtotal: operaciones únicas del almacén, no la suma duplicada de SKU.
+        orders = report["odoo_unique_by_warehouse"]
+        wh_orders = None if orders is None else int(orders.get(warehouse, 0))
+        wh_tonnes = None if not report["odoo_ok"] else sum((row["odoo_tonnes"] for row in warehouse_products), Decimal("0"))
+        subtotal_odoo_count, subtotal_odoo_ton = _order_display(wh_orders, wh_tonnes)
         body.append(
             '<tr class="inv-warehouse-subtotal-row">'
             '<th scope="row" class="inv-subtotal-label">SUBTOTAL</th>'
             + ''.join(f'<td>{subtotal[key]:,}</td>' for key in BUCKETS)
             + f'<td>{subtotal_sacks:,}</td><td>{subtotal_tonnes:,}</td>'
-            + '<td class="odoo-cell odoo-start"></td><td class="odoo-cell"></td></tr>'
+            + f'<td class="odoo-cell odoo-start">{subtotal_odoo_count}</td>'
+            + f'<td class="odoo-cell">{subtotal_odoo_ton}</td></tr>'
         )
         body.append('</tbody>')
         # En móviles se resume también cada bodega tras sus productos.
@@ -471,7 +506,8 @@ def _report_html(report: dict[str, object]) -> str:
             '<strong>SUBTOTAL DE BODEGA</strong>'
             f'<span>{subtotal_sacks:,} sacos · {subtotal_tonnes:,} ton</span></div>'
             f'<div class="mobile-bands">{subtotal_bands}</div>'
-            '<div class="inv-card-orders"><span>PEDIDOS <b></b></span><span>PEDIDOS (TON) <b></b></span></div>'
+            f'<div class="inv-card-orders"><span>PEDIDOS <b>{subtotal_odoo_count}</b></span>'
+            f'<span>PEDIDOS (TON) <b>{subtotal_odoo_ton}</b></span></div>'
             '</div>'
         )
         # En móviles el nombre de la bodega también aparece solo una vez.
@@ -488,7 +524,8 @@ def _report_html(report: dict[str, object]) -> str:
         '<tr class="inv-grand-total"><th scope="row" colspan="2">TOTAL GENERAL</th>'
         + ''.join(f'<td>{int(totals[key]):,}</td>' for key in BUCKETS)
         + f'<td>{overall_sacks:,}</td><td>{rounded_tonnes(overall_sacks):,}</td>'
-        + '<td class="odoo-cell odoo-start"></td><td class="odoo-cell"></td></tr>'
+        + f'<td class="odoo-cell odoo-start">{_order_display(report["odoo_unique_total"], report["odoo_tonnes_total"])[0]}</td>'
+        + f'<td class="odoo-cell">{_order_display(report["odoo_unique_total"], report["odoo_tonnes_total"])[1]}</td></tr>'
     )
     return (
         '<div class="inv-report-desktop"><div class="inv-report-scroll" role="region" aria-label="Semáforo de inventario" tabindex="0">'
@@ -499,7 +536,9 @@ def _report_html(report: dict[str, object]) -> str:
         '</colgroup><thead><tr>' + headers + '</tr></thead>'
         + ''.join(body) + '<tbody class="inv-summary-group">' + footer + '</tbody></table></div></div>'
         '<div class="inv-report-mobile">' + ''.join(cards)
-        + f'<div class="inv-mobile-total"><span>TOTAL GENERAL</span><strong>{overall_sacks:,} sacos · {rounded_tonnes(overall_sacks):,} ton</strong></div></div>'
+        + f'<div class="inv-mobile-total"><span>TOTAL GENERAL</span><strong>{overall_sacks:,} sacos · {rounded_tonnes(overall_sacks):,} ton</strong>'
+        + f'<small>Odoo: {_order_display(report["odoo_unique_total"], report["odoo_tonnes_total"])[0]} pedidos · '
+        + f'{_order_display(report["odoo_unique_total"], report["odoo_tonnes_total"])[1]} ton</small></div></div>'
     )
 
 
@@ -515,7 +554,8 @@ def supervisor_dashboard() -> None:
     st.markdown('<div class="report-title">Semáforo diario de capturas</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="report-sub">Selecciona la fecha de <b>registro</b>. La antigüedad se compara contra la fecha de '
-        'producción informada por el operario. Este reporte consolida capturas del día, no existencias netas.</div>',
+        'producción informada por el operario. Las columnas ARGOS corresponden a capturas del día; '
+        'las columnas Odoo muestran los pedidos que están <b>Listos ahora</b>, sin filtro de fecha.</div>',
         unsafe_allow_html=True,
     )
     filter_day, filter_depot = st.columns([1, 1], gap="medium")
@@ -544,8 +584,26 @@ def supervisor_dashboard() -> None:
 
     if report["anomalous"]:
         st.warning(f"Hay {len(report['anomalous'])} registros con fechas o datos inconsistentes que fueron excluidos del semáforo. Revisa la fuente.")
+    # La consulta Odoo no depende del calendario: estado actual de PICK Listos.
+    snapshot, odoo_error = _load_odoo_snapshot()
+    report = combine_report(report, snapshot, warehouse=selected_depot)
+    if odoo_error:
+        st.warning(odoo_error)
+    elif snapshot is not None:
+        st.markdown(
+            '<div class="odoo-live-context"><strong>ODOO · PEDIDOS LISTOS</strong>'
+            f'<span>Estado actual · Consultado {e(report["odoo_as_of"])} (Guatemala). '
+            'Sin filtro de fecha programada.</span></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("Actualizar pedidos Odoo ahora", key="refresh_odoo_orders"):
+            _cached_odoo.clear()
+            st.rerun()
+        if report["odoo_unmapped"]:
+            st.warning(f"Odoo contiene {len(report['odoo_unmapped'])} combinaciones SKU/unidad no verificadas. "
+                       "Estas toneladas no se incluyen en el reporte; revisa el mapeo antes de usar el total.")
     if not report["rows"]:
-        st.info("No hay capturas para la fecha y bodega seleccionadas.")
+        st.info("No hay capturas para la fecha seleccionada ni pedidos Odoo listos para la bodega.")
         return
 
     # Estas cifras representan SACOS CAPTURADOS, no saldo disponible en bodega.
@@ -565,8 +623,11 @@ def supervisor_dashboard() -> None:
     st.caption(
         "Verde: 0–10 días · Amarillo: 11–15 · Naranja: 16–20 · Rojo: 21 o más días. "
         "TOTAL (TON) = sacos × 0.0425, redondeado al entero más cercano. "
-        "PEDIDOS y PEDIDOS (TON) están pendientes de integración con Odoo. "
-        "Son registros capturados, no existencias netas."
+        "PEDIDOS: operaciones PICK únicas actualmente en estado Listo, sin filtro de fecha; "
+        "PEDIDOS (TON): demanda en sacos × 0.0425 para SKU 10002/10004. "
+        "Los subtotales y el total general de Odoo cuentan operaciones únicas y redondean toneladas después de sumar, "
+        "por lo que pueden diferir en ±1 ton de la suma de filas redondeadas. "
+        "Capturas ARGOS no equivalen a existencias netas."
     )
 
     summary_rows = _summary_csv_rows(report)
@@ -595,7 +656,7 @@ def supervisor_dashboard() -> None:
         st.dataframe(detail, hide_index=True, use_container_width=True, height=min(590, 92 + 36 * len(detail)))
         st.download_button(
             "Descargar detalle (CSV)",
-            data=_csv_text([list(detail[0])] + [list(row.values()) for row in detail]),
+            data=_csv_text([list(detail[0])] + [list(row.values()) for row in detail]) if detail else "",
             file_name=f"detalle_capturas_{selected_day.isoformat()}.csv", mime="text/csv",
             use_container_width=True,
         )
