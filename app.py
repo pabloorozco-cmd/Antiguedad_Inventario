@@ -507,14 +507,14 @@ def supervisor_dashboard() -> None:
     supervisor_welcome()
     header, logout_col = st.columns([5, 1], vertical_alignment="center")
     with header:
-        st.caption("Supervisor · Rudy Anavisca · Acceso a las tres bodegas")
+        st.markdown('<div class="report-context">Supervisor · Rudy Anavisca · Acceso a las tres bodegas</div>', unsafe_allow_html=True)
     with logout_col:
         if st.button("⏻  Salir", type="primary", key="top_exit_supervisor", use_container_width=True):
             logout()
 
-    st.markdown('<div class="section-title">Semáforo diario de capturas</div>', unsafe_allow_html=True)
+    st.markdown('<div class="report-title">Semáforo diario de capturas</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="section-sub">Selecciona la fecha de <b>registro</b>. La antigüedad se compara contra la fecha de '
+        '<div class="report-sub">Selecciona la fecha de <b>registro</b>. La antigüedad se compara contra la fecha de '
         'producción informada por el operario. Este reporte consolida capturas del día, no existencias netas.</div>',
         unsafe_allow_html=True,
     )
